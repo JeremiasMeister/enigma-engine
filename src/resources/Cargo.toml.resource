@@ -1,5 +1,5 @@
 [package]
-name = "enigma-engine"
+name = "ENIGMA_PROJECT_NAME"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,11 +8,6 @@ edition = "2021"
 [dependencies]
 enigma = { git = "https://github.com/JeremiasMeister/enigma", branch = "main" }
 winit = "0.28.7"
-rand = "0.8.5"
 egui = "0.23.0"
 egui_glium = "0.23.0"
 egui-winit = "0.23.0"
-rfd = { version = "0.14.0", features = ["file-handle-inner"] }
-async-std = "1.12.0"
-serde = { version = "1.0", features = ["derive"] }
-bincode = "1.3.3"
