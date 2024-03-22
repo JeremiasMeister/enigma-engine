@@ -14,8 +14,11 @@ struct Engine {
     pub selected_resource: String,
     pub object_builder_open: bool,
     pub model_resources: Vec<BinaryResource>,
+    pub audio_resources: Vec<BinaryResource>,
     pub texture_resources: Vec<BinaryResource>,
+    pub other_binary_resources: Vec<BinaryResource>,
     pub shader_resources: Vec<TextResource>,
+    pub other_text_resources: Vec<TextResource>,
     pub object_resources: Vec<Object>,
 }
 
@@ -26,9 +29,12 @@ impl Engine {
             selected_resource: String::new(),
             object_builder_open: false,
             model_resources: Vec::new(),
+            audio_resources: Vec::new(),
             texture_resources: Vec::new(),
             shader_resources: Vec::new(),
             object_resources: Vec::new(),
+            other_text_resources: Vec::new(),
+            other_binary_resources: Vec::new()
         }
     }
 

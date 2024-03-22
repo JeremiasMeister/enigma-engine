@@ -3,6 +3,7 @@ use egui::{Context, Style};
 use rfd::AsyncFileDialog;
 use enigma::AppState;
 use crate::{Engine, project};
+use crate::resources::ResourceType;
 
 pub fn get_ui_style(context: &Context) -> Style {
     let mut style = (*context.style()).clone();
@@ -309,8 +310,9 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
             ui.horizontal(|ui| {
                 ui.menu_button("Import Binary", |ui| {
                     let mut project_path: Option<String> = None;
+                    let (tx, rx) = std::sync::mpsc::channel();
                     let engine = app_state.get_state_data_value_mut::<Engine>("engine");
-                    if let Some(engine) = engine {
+                    if let Some(ref engine) = engine {
                         project_path = Some(engine.get_current_project().to_string());
                     }
                     if let Some(project_path) = project_path {
@@ -319,6 +321,7 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                             // Clone project_path for use in async block
                             let project_path = project_path.clone();
                             let dialog = AsyncFileDialog::new().pick_files();
+                            let tx = tx.clone();
                             async_std::task::spawn(async move {
                                 if let Some(files) = dialog.await {
                                     for file in files {
@@ -327,8 +330,8 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                                         let destination = format!("{0}/src/resources/textures/{1}", project_path, file.file_name().as_str());
                                         async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
                                         let name = file.file_name().as_str().to_owned();
-                                        let resource = crate::resources::import_resource_binary(&name, &destination);
-                                        //TODO: Add resource to engine
+                                        let resource = crate::resources::import_resource_binary(&name, &destination, ResourceType::Texture);
+                                        tx.send(resource).expect("failed to send resource");
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
@@ -339,6 +342,7 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                             // Clone project_path for use in async block
                             let project_path = project_path.clone();
                             let dialog = AsyncFileDialog::new().pick_files();
+                            let tx = tx.clone();
                             async_std::task::spawn(async move {
                                 if let Some(files) = dialog.await {
                                     for file in files {
@@ -346,8 +350,9 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/models/{1}", project_path, file.file_name().as_str());
                                         async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
-                                        let resource = crate::resources::import_resource_binary(file.file_name().as_str(), &destination);
+                                        let resource = crate::resources::import_resource_binary(file.file_name().as_str(), &destination, ResourceType::Model);
                                         //TODO: Add resource to engine
+                                        tx.send(resource).expect("failed to send resource");
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
@@ -358,13 +363,16 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                             // Clone project_path for use in async block
                             let project_path = project_path.clone();
                             let dialog = AsyncFileDialog::new().pick_files();
+                            let tx = tx.clone();
                             async_std::task::spawn(async move {
                                 if let Some(files) = dialog.await {
                                     for file in files {
                                         let path = file.path().to_str().expect("Invalid path").to_owned();
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/audio/{1}", project_path, file.file_name().as_str());
-                                        async_std::fs::copy(path.clone(), destination).await.expect("Failed to copy file");
+                                        async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
+                                        let resource = crate::resources::import_resource_binary(file.file_name().as_str(), &destination, ResourceType::Audio);
+                                        tx.send(resource).expect("failed to send resource");
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
@@ -375,18 +383,34 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                             // Clone project_path for use in async block
                             let project_path = project_path.clone();
                             let dialog = AsyncFileDialog::new().pick_files();
+                            let tx = tx.clone();
                             async_std::task::spawn(async move {
                                 if let Some(files) = dialog.await {
                                     for file in files {
                                         let path = file.path().to_str().expect("Invalid path").to_owned();
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/other/{1}", project_path, file.file_name().as_str());
-                                        async_std::fs::copy(path.clone(), destination).await.expect("Failed to copy file");
+                                        async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
+                                        let resource = crate::resources::import_resource_binary(file.file_name().as_str(), &destination, ResourceType::Other);
+                                        tx.send(resource).expect("failed to send resource");
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
                             });
                             ui.close_menu();
+                        }
+                        let resource = rx.recv();
+                        match resource {
+                            Ok(res) => {
+                                match res.resource_type {
+                                    ResourceType::Texture => engine.expect("should be present since we checked earlier").texture_resources.push(res),
+                                    ResourceType::Model => engine.expect("should be present since we checked earlier").model_resources.push(res),
+                                    ResourceType::Audio => engine.expect("should be present since we checked earlier").audio_resources.push(res),
+                                    ResourceType::Other => engine.expect("should be present since we checked earlier").other_binary_resources.push(res),
+                                    _ => {}
+                                }
+                            },
+                            Err(e) => println!("Error setting resource: {}", e)
                         }
                     } else {
                         println!("No engine found");
@@ -395,7 +419,8 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                 ui.menu_button("Import Text", |ui| {
                     let mut project_path: Option<String> = None;
                     let engine = app_state.get_state_data_value_mut::<Engine>("engine");
-                    if let Some(engine) = engine {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    if let Some(ref engine) = engine {
                         project_path = Some(engine.get_current_project().to_string());
                     }
                     if let Some(project_path) = project_path {
@@ -404,6 +429,7 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                             // Clone project_path for use in async block
                             let project_path = project_path.clone();
                             let dialog = AsyncFileDialog::new().pick_files();
+                            let tx = tx.clone();
                             async_std::task::spawn(async move {
                                 if let Some(files) = dialog.await {
                                     for file in files {
@@ -411,8 +437,9 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/shader/{1}", project_path, file.file_name().as_str());
                                         async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
-                                        let resource = crate::resources::import_resource_text(file.file_name().as_str(), &destination);
+                                        let resource = crate::resources::import_resource_text(file.file_name().as_str(), &destination, ResourceType::Shader);
                                         //TODO: Add resource to engine
+                                        tx.send(resource).expect("failed to send resource");
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
@@ -423,18 +450,32 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                             // Clone project_path for use in async block
                             let project_path = project_path.clone();
                             let dialog = AsyncFileDialog::new().pick_files();
+                            let tx = tx.clone();
                             async_std::task::spawn(async move {
                                 if let Some(files) = dialog.await {
                                     for file in files {
                                         let path = file.path().to_str().expect("Invalid path").to_owned();
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/other/{1}", project_path, file.file_name().as_str());
-                                        async_std::fs::copy(path.clone(), destination).await.expect("Failed to copy file");
+                                        async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
+                                        let resource = crate::resources::import_resource_text(file.file_name().as_str(), &destination, ResourceType::Other);
+                                        tx.send(resource).expect("failed to send resource");
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
                             });
                             ui.close_menu();
+                        }
+                        let resource = rx.recv();
+                        match resource {
+                            Ok(res) => {
+                                match res.resource_type {
+                                    ResourceType::Shader => engine.expect("should be present since we checked earlier").shader_resources.push(res),
+                                    ResourceType::Other => engine.expect("should be present since we checked earlier").other_text_resources.push(res),
+                                    _ => {}
+                                }
+                            },
+                            Err(e) => println!("Error setting resource: {}", e)
                         }
                     } else {
                         println!("No engine found");
