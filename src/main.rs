@@ -99,6 +99,7 @@ impl Engine {
 fn main() {
     let mut app_state = AppState::new();
     let event_loop = enigma::EventLoop::new("Enigma 3d - Engine", 1080, 720);
+    event_loop.set_icon_from_resource(resources::ICON);
 
     let camera = Camera::new(None, None, Some(60.0), Some(16.0/9.0), Some(0.1), Some(100.0));
     app_state.set_camera(camera);
