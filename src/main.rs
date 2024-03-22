@@ -6,11 +6,17 @@ mod serialization;
 use std::sync::Arc;
 use enigma::AppState;
 use enigma::camera::Camera;
+use enigma::object::Object;
+use crate::resources::{BinaryResource, TextResource};
 
-#[derive(Clone)]
 struct Engine {
     pub current_project: String,
     pub selected_resource: String,
+    pub object_builder_open: bool,
+    pub model_resources: Vec<BinaryResource>,
+    pub texture_resources: Vec<BinaryResource>,
+    pub shader_resources: Vec<TextResource>,
+    pub object_resources: Vec<Object>,
 }
 
 impl Engine {
@@ -18,6 +24,11 @@ impl Engine {
         Engine {
             current_project: String::new(),
             selected_resource: String::new(),
+            object_builder_open: false,
+            model_resources: Vec::new(),
+            texture_resources: Vec::new(),
+            shader_resources: Vec::new(),
+            object_resources: Vec::new(),
         }
     }
 
@@ -53,19 +64,34 @@ impl Engine {
         }
     }
 
-    pub fn build_project(&self) {
-        let output = std::process::Command::new("cargo")
-            .arg("build")
-            .arg("--release")
-            .current_dir(&self.current_project)
-            .output()
-            .expect("Failed to run project");
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            println!("Cargo run successful. Output:\n{}", stdout);
+    pub fn build_project(&self, release: bool) {
+        if release {
+            let output = std::process::Command::new("cargo")
+                .arg("build")
+                .arg("--release")
+                .current_dir(&self.current_project)
+                .output()
+                .expect("Failed to run project");
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                println!("Cargo run successful. Output:\n{}", stdout);
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("Cargo run failed. Error:\n{}", stderr);
+            }
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Cargo run failed. Error:\n{}", stderr);
+            let output = std::process::Command::new("cargo")
+                .arg("build")
+                .current_dir(&self.current_project)
+                .output()
+                .expect("Failed to run project");
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                println!("Cargo run successful. Output:\n{}", stdout);
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("Cargo run failed. Error:\n{}", stderr);
+            }
         }
     }
 }

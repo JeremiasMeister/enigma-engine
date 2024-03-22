@@ -46,19 +46,24 @@ fn create_folder_struct(path: &str) {
     fs::create_dir_all(project_dir.join("src/resources/textures")).expect("Failed to create textures folder");
     fs::create_dir_all(project_dir.join("src/resources/models")).expect("Failed to create models folder");
     fs::create_dir_all(project_dir.join("src/resources/shader")).expect("Failed to create shader folder");
+    fs::create_dir_all(project_dir.join("src/resources/scenes")).expect("Failed to create scripts folder");
     fs::create_dir_all(project_dir.join("src/resources/audio")).expect("Failed to create audio folder");
     fs::create_dir_all(project_dir.join("src/resources/other")).expect("Failed to create scripts folder");
 
     // Step 2: Generate Cargo.toml
     let mut cargo_toml = File::create(project_dir.join("Cargo.toml")).expect("Failed to create Cargo.toml");
-    let toml_template = resources::CARGO_TOML.to_string().replace("PROJECT_NAME", project_name);
+    let toml_template = resources::CARGO_TOML.to_string().replace("ENIGMA_PROJECT_NAME", project_name);
     write!(cargo_toml, "{}", toml_template).expect("Failed to write to Cargo.toml");
 
 
     // Step 3: Create src/main.rs with a simple program
     let mut main_rs = File::create(project_dir.join("src/main.rs")).expect("Failed to create main.rs");
-    let main_template = resources::MAIN_RS.to_string().replace("PROJECT_NAME", project_name);
+    let main_template = resources::MAIN_RS.to_string().replace("ENIGMA_PROJECT_NAME", project_name);
     writeln!(main_rs, "{}", main_template).expect("Failed to write to main.rs");
+
+    // Step 4: Create Empty Scene File
+    let mut scene_file = File::create(project_dir.join("src/resources/scenes/enigma_main_scene.json")).expect("Failed to create scene file");
+    writeln!(scene_file, "{}", "{}").expect("Failed to write to scene file");
 
     println!("Cargo project '{}' created successfully.", path);
 }

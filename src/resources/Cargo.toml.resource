@@ -11,3 +11,5 @@ winit = "0.28.7"
 egui = "0.23.0"
 egui_glium = "0.23.0"
 egui-winit = "0.23.0"
+serde_json = "1.0.108"
+serde = { version = "1.0.193", features = ["derive"] }

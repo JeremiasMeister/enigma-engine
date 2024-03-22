@@ -1,10 +1,8 @@
-use std::fs;
-use std::io::{self, Read};
-use enigma::AppState;
 
 pub const CARGO_TOML: &str = include_str!("Cargo.toml.resource");
 pub const MAIN_RS: &str = include_str!("main.rs.resource");
 
+#[derive(Clone)]
 pub struct BinaryResource {
     pub name: String,
     pub data: Vec<u8>,
@@ -19,6 +17,7 @@ impl BinaryResource {
     }
 }
 
+#[derive(Clone)]
 pub struct TextResource {
     pub name: String,
     pub data: String,

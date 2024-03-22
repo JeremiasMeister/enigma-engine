@@ -9,6 +9,18 @@ fn main(){
     let camera = enigma::camera::Camera::new(None, None, Some(60.0), Some(16.0/9.0), Some(0.1), Some(100.0));
     app_state.set_camera(camera);
 
+    // load enigma engine scene
+    let serialized = include_str!("resources/scenes/enigma_main_scene.json");
+    match serde_json::from_str(&serialized) {
+        Ok(deserialized) => {
+            let display = event_loop.get_display_clone();
+            app_state.inject_serializer(deserialized, display, false);
+        }
+        Err(e) => {
+            println!("Could not load app state: {}", e);
+        }
+    }
+
     // run the event loop, providing the app_state as an arc mutex
     event_loop.run(app_state.convert_to_arc_mutex());
 }

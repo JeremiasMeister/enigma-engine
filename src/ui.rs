@@ -26,12 +26,12 @@ pub fn project_window(context: &Context, app_state: &mut AppState) {
         .show(context, |ui| {
             ui.label("Project");
             ui.horizontal(|ui| {
-                ui.menu_button("New", |ui| {
+                ui.menu_button("File", |ui| {
                     if ui.button("New Project").clicked() {
                         println!("Creating new project");
                         let engine = app_state.get_state_data_value_mut::<Engine>("engine");
                         let (tx, rx) = std::sync::mpsc::channel();
-                        if let Some(mut engine) = engine {
+                        if let Some(engine) = engine {
                             println!("closing Current project: {}", &engine.get_current_project());
                             let dialog = AsyncFileDialog::new().pick_folder();
                             async_std::task::spawn(async move {
@@ -70,12 +70,10 @@ pub fn project_window(context: &Context, app_state: &mut AppState) {
                         }
                         ui.close_menu();
                     }
-                });
-                ui.menu_button("Open", |ui| {
                     if ui.button("Open Project").clicked() {
                         println!("Opening project");
                         let engine = app_state.get_state_data_value_mut::<Engine>("engine");
-                        if let Some(mut engine) = engine {
+                        if let Some(engine) = engine {
                             let (tx, rx) = std::sync::mpsc::channel();
                             let dialog = AsyncFileDialog::new().pick_folder();
                             async_std::task::spawn(async move {
@@ -115,8 +113,40 @@ pub fn project_window(context: &Context, app_state: &mut AppState) {
                         }
                         ui.close_menu();
                     }
+                    if ui.button("Save Project").clicked() {
+                        let engine = app_state.get_state_data_value_mut::<Engine>("engine");
+                        match engine {
+                            Some(engine) => {
+                                let project = engine.get_current_project();
+                                if project::is_valid_project(project){
+                                    let start_folder = format!("{}/src/resources/scenes", project);
+                                    let (tx, rx) = std::sync::mpsc::channel();
+                                    let dialog = AsyncFileDialog::new().add_filter(".json", &["json"]).set_directory(start_folder).pick_file();
+                                    async_std::task::spawn(async move {
+                                        if let Some(scene) = dialog.await {
+                                            let path = scene.path().to_str().expect("Invalid path").to_owned();
+                                            tx.send(path.replace("\\", "/")).expect("Failed to send path");
+                                        }
+                                    });
+                                    if let Ok(path) = rx.recv() {
+                                        if !path.ends_with(".json") {
+                                            println!("Invalid file type. Must be a .json file");
+                                        } else {
+                                            println!("Saving project to: {:?}", path);
+                                            let serialize_app_state = app_state.to_serializer();
+                                            let serialized = serde_json::to_string_pretty(&serialize_app_state).unwrap();
+                                            std::fs::write(path, serialized).unwrap();
+                                        }
+                                    }
+                                }
+                            }
+                            None => {
+                                println!("could not find engine");
+                            }
+                        }
+                    }
                 });
-                ui.menu_button("Run", |ui| {
+                ui.menu_button("Cargo Config", |ui| {
                     if ui.button("Run Current Project").clicked() {
                         let engine = app_state.get_state_data_value_mut::<Engine>("engine");
                         if let Some(engine) = engine {
@@ -124,6 +154,26 @@ pub fn project_window(context: &Context, app_state: &mut AppState) {
                             engine.run_project();
                         } else {
                             println!("No project to run");
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("Debug Build Current Project").clicked() {
+                        let engine = app_state.get_state_data_value_mut::<Engine>("engine");
+                        if let Some(engine) = engine {
+                            println!("Building project: {}", &engine.current_project);
+                            engine.build_project(false);
+                        } else {
+                            println!("No project to build");
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("Release Build Current Project").clicked() {
+                        let engine = app_state.get_state_data_value_mut::<Engine>("engine");
+                        if let Some(engine) = engine {
+                            println!("Building project: {}", &engine.current_project);
+                            engine.build_project(true);
+                        } else {
+                            println!("No project to build");
                         }
                         ui.close_menu();
                     }
@@ -232,8 +282,8 @@ pub fn resource_inspector_window(context: &Context, app_state: &mut AppState) {
     // This is a placeholder for the actual function
     egui::Window::new("Resource Inspector")
         .default_width(200.0)
-        .default_height(200.0)
-        .default_pos(egui::Pos2::new(screen_size.x - 200.0, screen_size.y - 200.0))
+        .default_height(600.0)
+        .default_pos(egui::Pos2::new(screen_size.x - 200.0, screen_size.y - 280.0))
         .show(context, |ui| {
             ui.label("Resource Inspector");
             ui.horizontal(|ui| {
@@ -251,8 +301,9 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
     egui::Window::new("Resources")
         .default_width(screen_size.x)
         .resizable(true)
+        .default_width(screen_size.x - 280.0)
         .default_height(600.0)
-        .default_pos(egui::Pos2::new(20.0, screen_size.y - 200.0))
+        .default_pos(egui::Pos2::new(20.0, screen_size.y - 280.0))
         .show(context, |ui| {
             ui.label("Resources");
             ui.horizontal(|ui| {
@@ -260,7 +311,7 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                     let mut project_path: Option<String> = None;
                     let engine = app_state.get_state_data_value_mut::<Engine>("engine");
                     if let Some(engine) = engine {
-                        project_path = Some(engine.get_current_project().clone().to_string());
+                        project_path = Some(engine.get_current_project().to_string());
                     }
                     if let Some(project_path) = project_path {
                         // Clone project_path here to capture it by the async block below
@@ -274,7 +325,10 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                                         let path = file.path().to_str().expect("Invalid path").to_owned();
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/textures/{1}", project_path, file.file_name().as_str());
-                                        async_std::fs::copy(path.clone(), destination).await.expect("Failed to copy file");
+                                        async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
+                                        let name = file.file_name().as_str().to_owned();
+                                        let resource = crate::resources::import_resource_binary(&name, &destination);
+                                        //TODO: Add resource to engine
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
@@ -291,7 +345,9 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                                         let path = file.path().to_str().expect("Invalid path").to_owned();
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/models/{1}", project_path, file.file_name().as_str());
-                                        async_std::fs::copy(path.clone(), destination).await.expect("Failed to copy file");
+                                        async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
+                                        let resource = crate::resources::import_resource_binary(file.file_name().as_str(), &destination);
+                                        //TODO: Add resource to engine
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
@@ -340,7 +396,7 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                     let mut project_path: Option<String> = None;
                     let engine = app_state.get_state_data_value_mut::<Engine>("engine");
                     if let Some(engine) = engine {
-                        project_path = Some(engine.get_current_project().clone().to_string());
+                        project_path = Some(engine.get_current_project().to_string());
                     }
                     if let Some(project_path) = project_path {
                         // Clone project_path here to capture it by the async block below
@@ -354,7 +410,9 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
                                         let path = file.path().to_str().expect("Invalid path").to_owned();
                                         // Use cloned project_path here
                                         let destination = format!("{0}/src/resources/shader/{1}", project_path, file.file_name().as_str());
-                                        async_std::fs::copy(path.clone(), destination).await.expect("Failed to copy file");
+                                        async_std::fs::copy(path.clone(), destination.clone()).await.expect("Failed to copy file");
+                                        let resource = crate::resources::import_resource_text(file.file_name().as_str(), &destination);
+                                        //TODO: Add resource to engine
                                         println!("Importing resource: {:?}", path);
                                     }
                                 }
@@ -389,11 +447,11 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
             let mut project_path: Option<String> = None;
             let engine = app_state.get_state_data_value_mut::<Engine>("engine");
             if let Some(engine) = engine {
-                project_path = Some(engine.get_current_project().clone().to_string());
+                project_path = Some(engine.get_current_project().to_string());
             }
             if let Some(project_path) = project_path {
                 let texture_path = format!("{0}/src/resources/textures", project_path);
-                let mut entries = fs::read_dir(texture_path).expect("Failed to read directory");
+                let entries = fs::read_dir(texture_path).expect("Failed to read directory");
                 for entry in entries {
                     if let Ok(entry) = entry {
                         let path = entry.path();
@@ -408,11 +466,11 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
             let mut project_path: Option<String> = None;
             let engine = app_state.get_state_data_value_mut::<Engine>("engine");
             if let Some(engine) = engine {
-                project_path = Some(engine.get_current_project().clone().to_string());
+                project_path = Some(engine.get_current_project().to_string());
             }
             if let Some(project_path) = project_path {
                 let texture_path = format!("{0}/src/resources/models", project_path);
-                let mut entries = fs::read_dir(texture_path).expect("Failed to read directory");
+                let entries = fs::read_dir(texture_path).expect("Failed to read directory");
                 for entry in entries {
                     if let Ok(entry) = entry {
                         let path = entry.path();
@@ -427,16 +485,16 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
             let mut project_path: Option<String> = None;
             let engine = app_state.get_state_data_value_mut::<Engine>("engine");
             if let Some(engine) = engine {
-                project_path = Some(engine.get_current_project().clone().to_string());
+                project_path = Some(engine.get_current_project().to_string());
             }
             if let Some(project_path) = project_path {
                 let texture_path = format!("{0}/src/resources/audio", project_path);
-                let mut entries = fs::read_dir(texture_path).expect("Failed to read directory");
+                let entries = fs::read_dir(texture_path).expect("Failed to read directory");
                 for entry in entries {
                     if let Ok(entry) = entry {
                         let path = entry.path();
                         let name = path.file_name().expect("Failed to get file name").to_str().expect("Failed to convert to string");
-                        ui.label(name);
+                        ui.label(format!("{:?} - NOT IN APPSTATE", name));
                     }
                 }
             }
@@ -450,7 +508,7 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
             }
             if let Some(project_path) = project_path {
                 let texture_path = format!("{0}/src/resources/shader", project_path);
-                let mut entries = fs::read_dir(texture_path).expect("Failed to read directory");
+                let entries = fs::read_dir(texture_path).expect("Failed to read directory");
                 for entry in entries {
                     if let Ok(entry) = entry {
                         let path = entry.path();
@@ -469,11 +527,12 @@ pub fn resources_window(context: &egui::Context, app_state: &mut AppState) {
             }
             if let Some(project_path) = project_path {
                 let texture_path = format!("{0}/src/resources/other", project_path);
-                let mut entries = fs::read_dir(texture_path).expect("Failed to read directory");
+                let entries = fs::read_dir(texture_path).expect("Failed to read directory");
                 for entry in entries {
                     if let Ok(entry) = entry {
                         let path = entry.path();
                         let name = path.file_name().expect("Failed to get file name").to_str().expect("Failed to convert to string");
+                        ui.label(format!("{:?} - NOT IN APPSTATE", name));
                     }
                 }
             }
