@@ -1,9 +1,10 @@
+use serde::{Deserialize, Serialize};
 
 pub const CARGO_TOML: &str = include_str!("Cargo.toml.resource");
 pub const MAIN_RS: &str = include_str!("main.rs.resource");
 pub const ICON: &'static [u8] = include_bytes!("icon.png.resource");
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ResourceType {
     Texture,
     Model,
@@ -12,7 +13,7 @@ pub enum ResourceType {
     Other,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BinaryResource {
     pub name: String,
     pub data: Vec<u8>,
@@ -29,7 +30,7 @@ impl BinaryResource {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TextResource {
     pub name: String,
     pub data: String,

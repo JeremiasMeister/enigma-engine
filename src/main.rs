@@ -6,9 +6,11 @@ mod serialization;
 use std::sync::Arc;
 use enigma::AppState;
 use enigma::camera::Camera;
-use enigma::object::Object;
+use enigma::object::{Object, ObjectSerializer};
+use serde::{Deserialize, Serialize};
 use crate::resources::{BinaryResource, TextResource};
 
+#[derive(Clone, Serialize, Deserialize)]
 struct Engine {
     pub current_project: String,
     pub selected_resource: String,
@@ -19,7 +21,7 @@ struct Engine {
     pub other_binary_resources: Vec<BinaryResource>,
     pub shader_resources: Vec<TextResource>,
     pub other_text_resources: Vec<TextResource>,
-    pub object_resources: Vec<Object>,
+    pub object_resources: Vec<ObjectSerializer>,
 }
 
 impl Engine {
@@ -36,23 +38,6 @@ impl Engine {
             other_text_resources: Vec::new(),
             other_binary_resources: Vec::new()
         }
-    }
-
-    pub fn set_current_project(&mut self, path: &str) {
-        self.current_project = path.to_string();
-    }
-
-    pub fn new_project(&mut self, path: &str) {
-        self.current_project = path.to_string();
-        project::try_new_project(path);
-    }
-
-    pub fn get_current_project(&self) -> &str {
-        &self.current_project
-    }
-
-    pub fn open_project(&mut self, path: &str) {
-        self.current_project = path.to_string();
     }
 
     pub fn run_project(&self) {
@@ -112,9 +97,5 @@ fn main() {
 
     // inject the ui into the app_state
     app_state.inject_gui(Arc::new(ui::project_window));
-    app_state.inject_gui(Arc::new(ui::transform_window));
-    app_state.inject_gui(Arc::new(ui::scene_entities_window));
-    app_state.inject_gui(Arc::new(ui::resource_inspector_window));
-    app_state.inject_gui(Arc::new(ui::resources_window));
     event_loop.run(app_state.convert_to_arc_mutex());
 }
