@@ -6,7 +6,7 @@ mod serialization;
 use std::sync::Arc;
 use enigma::AppState;
 use enigma::camera::Camera;
-use enigma::object::{Object, ObjectSerializer};
+use enigma::object::ObjectSerializer;
 use serde::{Deserialize, Serialize};
 use crate::resources::{BinaryResource, TextResource};
 
@@ -96,6 +96,6 @@ fn main() {
     app_state.set_camera(camera);
 
     // inject the ui into the app_state
-    app_state.inject_gui(Arc::new(ui::project_window));
+    app_state.inject_gui(Arc::new(ui::project_window::draw));
     event_loop.run(app_state.convert_to_arc_mutex());
 }

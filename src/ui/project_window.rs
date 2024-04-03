@@ -1,25 +1,11 @@
-use std::fs;
-use egui::{Context, Style};
+
+use egui::Context;
 use rfd::AsyncFileDialog;
 use enigma::AppState;
 use crate::{Engine, project};
-use crate::resources::ResourceType;
-
-pub fn get_ui_style(context: &Context) -> Style {
-    let mut style = (*context.style()).clone();
-
-    style.visuals.window_shadow.extrusion = 0.0;
-    style.visuals.window_shadow.color = egui::Color32::TRANSPARENT;
-
-    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 200);
-    style.visuals.override_text_color = Some(egui::Color32::WHITE);
-    style.visuals.window_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
-
-    style
-}
-
-pub fn project_window(context: &Context, app_state: &mut AppState) {
-    context.set_style(get_ui_style(context));
+use crate::ui;
+pub fn draw(context: &Context, app_state: &mut AppState) {
+    context.set_style(ui::get_ui_style(context));
     // This is a placeholder for the actual function
     egui::Window::new("Project")
         .default_width(200.0)
