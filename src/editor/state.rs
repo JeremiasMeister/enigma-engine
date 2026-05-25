@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::ser::SerializeSeq;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -13,7 +14,28 @@ pub struct ProjectState {
     pub materials: Vec<MaterialDef>,
     // (scene_uuid, object_uuid) -> material_uuid. Scene-level data persisted in project file
     // because enigma_3d's ObjectSerializer doesn't carry editor material uuids.
+    // Serialized as a flat array of triples — JSON map keys must be strings, and
+    // tuple keys aren't.
+    #[serde(serialize_with = "ser_assignments", deserialize_with = "de_assignments")]
     pub material_assignments: HashMap<(Uuid, Uuid), Uuid>,
+}
+
+fn ser_assignments<S: Serializer>(
+    map: &HashMap<(Uuid, Uuid), Uuid>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let mut seq = s.serialize_seq(Some(map.len()))?;
+    for ((scene, object), material) in map {
+        seq.serialize_element(&(scene, object, material))?;
+    }
+    seq.end()
+}
+
+fn de_assignments<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<HashMap<(Uuid, Uuid), Uuid>, D::Error> {
+    let entries: Vec<(Uuid, Uuid, Uuid)> = Deserialize::deserialize(d)?;
+    Ok(entries.into_iter().map(|(s, o, m)| ((s, o), m)).collect())
 }
 
 impl ProjectState {
@@ -191,18 +213,25 @@ mod tests {
             kind: ResourceKind::Texture,
             relative_path: "textures/albedo.png".into(),
         });
+        let scene_uuid = Uuid::new_v4();
         p.scenes.push(SceneRef {
-            uuid: Uuid::new_v4(),
+            uuid: scene_uuid,
             name: "main".into(),
             relative_path: "scenes/main.json".into(),
         });
-        p.materials.push(MaterialDef::default_pbr("Material 1".into()));
+        let mat = MaterialDef::default_pbr("Material 1".into());
+        let mat_uuid = mat.uuid;
+        p.materials.push(mat);
+        let object_uuid = Uuid::new_v4();
+        p.material_assignments.insert((scene_uuid, object_uuid), mat_uuid);
+
         let json = serde_json::to_string_pretty(&p).unwrap();
         let parsed: ProjectState = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, p.name);
         assert_eq!(parsed.manifest, p.manifest);
         assert_eq!(parsed.scenes, p.scenes);
         assert_eq!(parsed.materials, p.materials);
+        assert_eq!(parsed.material_assignments.get(&(scene_uuid, object_uuid)).copied(), Some(mat_uuid));
     }
 
     #[test]
