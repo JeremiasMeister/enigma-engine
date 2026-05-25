@@ -212,15 +212,13 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         .and_then(|p| p.scenes.get(p.active_scene_index))
         .map(|s| s.terrain.is_some())
         .unwrap_or(false);
-    egui::CollapsingHeader::new("Terrain")
-        .default_open(true)
-        .show(ui, |ui| {
-            let selected = matches!(current_selection, Selection::Terrain);
-            let label = if has_terrain { "Terrain" } else { "Terrain (none)" };
-            if ui.selectable_label(selected, label).clicked() {
-                new_selection = Some(Selection::Terrain);
-            }
-        });
+    {
+        let selected = matches!(current_selection, Selection::Terrain);
+        let label = if has_terrain { "Terrain" } else { "Terrain (none)" };
+        if ui.selectable_label(selected, label).clicked() {
+            new_selection = Some(Selection::Terrain);
+        }
+    }
 
     let delete_key = ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
     if delete_key && renaming.is_none() {

@@ -134,7 +134,9 @@ fn list_materials(ui: &mut Ui, app_state: &mut AppState) {
     let (rows, current_sel, renaming) = {
         let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let rows: Vec<(Uuid, String)> = root.project.as_ref()
-            .map(|p| p.materials.iter().map(|m| (m.uuid, m.name.clone())).collect())
+            .map(|p| p.materials.iter()
+                .filter(|m| !m.name.starts_with("INTERNAL::"))
+                .map(|m| (m.uuid, m.name.clone())).collect())
             .unwrap_or_default();
         (rows, root.editor.selection.clone(), root.editor.renaming.clone())
     };
@@ -267,11 +269,10 @@ fn list_particles(ui: &mut Ui, app_state: &mut AppState) {
 /// Returns the uuid of a project material suitable for particle rendering.
 /// Reuses an existing "Particles Default" material if present, otherwise creates one.
 fn ensure_particle_default_material(project: &mut crate::editor::state::ProjectState) -> Option<Uuid> {
-    if let Some(m) = project.materials.iter().find(|m| m.name == "Particles Default") {
+    if let Some(m) = project.materials.iter().find(|m| m.name == "INTERNAL::ParticleDefault") {
         return Some(m.uuid);
     }
-    let mut def = MaterialDef::default_pbr("Particles Default".to_string());
-    // additive-friendly: white emissive default, transparent enabled
+    let mut def = MaterialDef::default_pbr("INTERNAL::ParticleDefault".to_string());
     def.color = [1.0, 1.0, 1.0];
     def.emissive_strength = 1.0;
     def.transparent = true;
