@@ -27,6 +27,14 @@ pub struct ProjectState {
 pub struct ParticleSystemDef {
     pub uuid: Uuid,
     pub config: ParticleSystemConfig,
+    /// Optional texture resource to use as albedo. When None, the built-in
+    /// fallback (1x1 white) is sampled.
+    #[serde(default)]
+    pub texture: Option<Uuid>,
+    /// Advanced override: pick a project material directly. Must use a
+    /// particle shader (e.g. one built from particle_sprite_vert/frag) or
+    /// the renderer will crash. Leave None to use the editor-managed
+    /// per-def material with the texture above.
     #[serde(default)]
     pub material: Option<Uuid>,
 }
@@ -51,6 +59,7 @@ impl ParticleSystemDef {
         Self {
             uuid: Uuid::new_v4(),
             config,
+            texture: None,
             material: None,
         }
     }
@@ -285,6 +294,9 @@ pub struct EditorState {
     pub applied_particle_instances: HashMap<Uuid, u64>,
     pub internal_particle_sprite_material: Option<Uuid>,
     pub internal_particle_ribbon_material: Option<Uuid>,
+    /// def_uuid -> (material_uuid, applied_texture_hash) of editor-built
+    /// per-def particle materials.
+    pub per_def_particle_materials: HashMap<Uuid, (Uuid, u64)>,
     pub job: Option<RunningJob>,
     pub last_job: Option<JobOutcome>,
     pub project_load: Option<ProjectLoadJob>,

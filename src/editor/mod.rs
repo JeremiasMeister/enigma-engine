@@ -3,6 +3,8 @@ pub mod actions;
 pub mod panels;
 pub mod inspector;
 
+use std::collections::HashMap;
+
 use egui::Context;
 use enigma_3d::AppState;
 
@@ -343,10 +345,80 @@ fn default_particle_material(app_state: &AppState, render: &enigma_3d::particle:
     }
 }
 
+/// If the particle def has a `texture` set, build (or update) a per-def
+/// particle material with that texture as the albedo. Returns the uuid
+/// of the per-def material if texture is present and could be loaded,
+/// else None (caller falls back to the shared built-in).
+fn ensure_per_def_particle_material(
+    app_state: &mut AppState,
+    def_uuid: uuid::Uuid,
+) -> Option<uuid::Uuid> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let (texture_uuid, render_style, project_root_path) = {
+        let r = app_state.get_state_data_value::<EditorRoot>("editor")?;
+        let project = r.project.as_ref()?;
+        let def = project.particle_systems.iter().find(|d| d.uuid == def_uuid)?;
+        let tex = def.texture?;
+        (tex, def.config.render.clone(), project.root_path.clone())
+    };
+    let _ = project_root_path;
+
+    let cached = app_state.get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.editor.per_def_particle_materials.get(&def_uuid).copied());
+
+    let bytes = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return None; };
+        let Some(project) = r.project.as_ref() else { return None; };
+        match crate::project::resource::bytes(project, texture_uuid) {
+            Ok(b) => b,
+            Err(_) => return None,
+        }
+    };
+
+    let mut h = DefaultHasher::new();
+    texture_uuid.hash(&mut h);
+    matches!(render_style, enigma_3d::particle::RenderStyle::Ribbon { .. }).hash(&mut h);
+    let new_hash = h.finish();
+
+    if let Some((mat_uuid, applied_hash)) = cached {
+        if applied_hash == new_hash && app_state.materials.iter().any(|m| m.uuid == mat_uuid) {
+            return Some(mat_uuid);
+        }
+        // Stale → drop and rebuild.
+        app_state.materials.retain(|m| m.uuid != mat_uuid);
+    }
+
+    let Some(display) = app_state.display.clone() else { return None; };
+    let mut mat = match render_style {
+        enigma_3d::particle::RenderStyle::Sprite { .. } => enigma_3d::material::Material::particle_sprite(&display),
+        enigma_3d::particle::RenderStyle::Ribbon { .. } => enigma_3d::material::Material::particle_ribbon(&display),
+    };
+    mat.set_name(&format!("INTERNAL::ParticleDef::{def_uuid}"));
+    mat.set_texture_from_resource(&bytes, enigma_3d::material::TextureType::Albedo);
+    let new_uuid = mat.uuid;
+    app_state.materials.push(mat);
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.per_def_particle_materials.insert(def_uuid, (new_uuid, new_hash));
+    }
+    Some(new_uuid)
+}
+
 fn reconcile_particle_preview(app_state: &mut AppState) {
     use crate::editor::state::Selection;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
+
+    let selected_def: Option<uuid::Uuid> = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        match &r.editor.selection {
+            Selection::Particle(u) => Some(*u),
+            _ => None,
+        }
+    };
+    let per_def_mat = selected_def.and_then(|u| ensure_per_def_particle_material(app_state, u));
 
     let (desired_uuid, desired_config, effective_material) = {
         let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
@@ -363,8 +435,10 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
                             enigma_3d::particle::RenderStyle::Sprite { .. } => sprite_default,
                             enigma_3d::particle::RenderStyle::Ribbon { .. } => ribbon_default,
                         };
-                        let mat = explicit_valid.or(fallback);
-                        (Some(*u), Some(d.config.clone()), mat)
+                        let mat = explicit_valid.or(per_def_mat).or(fallback);
+                        let mut cfg = d.config.clone();
+                        sanitize_particle_config(&mut cfg);
+                        (Some(*u), Some(cfg), mat)
                     }
                     None => (None, None, None),
                 }
@@ -420,6 +494,55 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
     }
 }
 
+/// Clamp ranges and shape params to non-degenerate values so rand::gen_range
+/// doesn't panic mid-drag while the user is editing the inspector.
+fn sanitize_particle_config(cfg: &mut enigma_3d::particle::ParticleSystemConfig) {
+    use enigma_3d::particle::{ColorRange, EmitterShape, InitialVelocity};
+
+    fn fix_range(r: &mut enigma_3d::particle::Range<f32>, min_floor: f32) {
+        if r.min.is_nan() { r.min = min_floor; }
+        if r.max.is_nan() { r.max = min_floor; }
+        if r.min < min_floor { r.min = min_floor; }
+        if r.max < r.min { r.max = r.min; }
+    }
+
+    cfg.max_particles = cfg.max_particles.max(1);
+    if cfg.duration <= 0.0 { cfg.duration = 0.001; }
+    if cfg.emission_rate.is_nan() || cfg.emission_rate < 0.0 { cfg.emission_rate = 0.0; }
+    fix_range(&mut cfg.initial_lifetime, 0.001);
+    fix_range(&mut cfg.initial_size, 0.0);
+    fix_range(&mut cfg.initial_rotation, f32::NEG_INFINITY);
+
+    match &mut cfg.emitter_shape {
+        EmitterShape::Sphere { radius } => { if *radius < 0.0 { *radius = 0.0; } }
+        EmitterShape::Box { half_extents } => {
+            for e in half_extents.iter_mut() { if *e < 0.0 { *e = 0.0; } }
+        }
+        EmitterShape::Cone { angle, height } => {
+            if *angle < 0.0 { *angle = 0.0; }
+            if *height <= 0.0 { *height = 0.001; }
+        }
+        EmitterShape::Disk { radius } => { if *radius < 0.0 { *radius = 0.0; } }
+        EmitterShape::Point => {}
+    }
+
+    match &mut cfg.initial_velocity {
+        InitialVelocity::Outward { speed }
+        | InitialVelocity::Direction { speed, .. }
+        | InitialVelocity::Hemisphere { speed, .. } => fix_range(speed, 0.0),
+        InitialVelocity::Cone { angle, speed, .. } => {
+            if *angle < 0.0 { *angle = 0.0; }
+            fix_range(speed, 0.0);
+        }
+    }
+
+    if let ColorRange::Range { min, max } = &mut cfg.initial_color {
+        for i in 0..4 {
+            if max[i] < min[i] { max[i] = min[i]; }
+        }
+    }
+}
+
 fn hash_particle_config(cfg: &enigma_3d::particle::ParticleSystemConfig) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -435,10 +558,26 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
+    // First pass: ensure per-def textured materials for every def referenced
+    // by a scene instance. Done outside the snapshot borrow so we can mutate
+    // app_state.materials.
+    let referenced_defs: Vec<uuid::Uuid> = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(project) = r.project.as_ref() else { return; };
+        let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
+        let mut s = std::collections::HashSet::new();
+        for inst in &scene.particle_instances { s.insert(inst.def_uuid); }
+        s.into_iter().collect()
+    };
+    let mut per_def: HashMap<uuid::Uuid, Option<uuid::Uuid>> = HashMap::new();
+    for d in referenced_defs {
+        per_def.insert(d, ensure_per_def_particle_material(app_state, d));
+    }
+
     // Snapshot all instances in the active scene + def configs. Resolve the
-    // effective material (explicit if valid, else built-in fallback) here so
-    // the hash captures it — otherwise switching from None → built-in never
-    // triggers a rebuild and systems stay with material_id None.
+    // effective material (explicit if valid, else per-def textured, else
+    // built-in fallback) and include in the hash so material changes
+    // trigger a rebuild.
     let snapshot: Vec<(uuid::Uuid, uuid::Uuid, [f32; 3], u64, Option<uuid::Uuid>)> = {
         let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let Some(project) = r.project.as_ref() else { return; };
@@ -448,11 +587,12 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
         scene.particle_instances.iter().filter_map(|inst| {
             let def = project.particle_systems.iter().find(|d| d.uuid == inst.def_uuid)?;
             let explicit_valid = def.material.filter(|u| app_state.materials.iter().any(|m| m.uuid == *u));
+            let textured = per_def.get(&inst.def_uuid).copied().flatten();
             let fallback = match def.config.render {
                 enigma_3d::particle::RenderStyle::Sprite { .. } => sprite_default,
                 enigma_3d::particle::RenderStyle::Ribbon { .. } => ribbon_default,
             };
-            let effective_mat = explicit_valid.or(fallback);
+            let effective_mat = explicit_valid.or(textured).or(fallback);
             let mat_part = effective_mat.map(|m| {
                 let mut h = DefaultHasher::new();
                 m.hash(&mut h);
@@ -488,7 +628,8 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
             let Some(project) = r.project.as_ref() else { continue; };
             project.particle_systems.iter().find(|d| d.uuid == def_uuid).map(|d| d.config.clone())
         };
-        let Some(config) = config else { continue; };
+        let Some(mut config) = config else { continue; };
+        sanitize_particle_config(&mut config);
 
         // Remove existing instance with this uuid if any.
         app_state.particle_systems.retain(|s| s.handle != inst_uuid);

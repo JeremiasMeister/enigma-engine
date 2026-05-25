@@ -1,11 +1,11 @@
 use egui::{DragValue, Ui};
 use enigma_3d::AppState;
 use enigma_3d::particle::{
-    BlendMode, ColorRange, EmitterShape, InitialVelocity, Range, RenderStyle,
+    BlendMode, ColorRange, EmitterShape, FlipbookConfig, InitialVelocity, Range, RenderStyle,
 };
 use uuid::Uuid;
 
-use crate::editor::state::EditorRoot;
+use crate::editor::state::{EditorRoot, ResourceKind};
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
     let mut def_clone = {
@@ -25,6 +25,13 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
             .filter(|m| !m.name.starts_with("INTERNAL::"))
             .map(|m| (m.uuid, m.name.clone())).collect())
         .unwrap_or_default();
+    let textures: Vec<(Uuid, String)> = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.as_ref())
+        .map(|p| p.manifest.iter()
+            .filter(|e| e.kind == ResourceKind::Texture)
+            .map(|e| (e.uuid, e.name.clone())).collect())
+        .unwrap_or_default();
 
     let mut changed = false;
 
@@ -34,25 +41,50 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
     });
 
     ui.horizontal(|ui| {
-        ui.label("Material");
-        let current = def_clone.material
-            .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-            .unwrap_or_else(|| "(built-in)".to_string());
-        egui::ComboBox::from_id_source("particle_material")
+        ui.label("Texture");
+        let current = def_clone.texture
+            .and_then(|u| textures.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
+            .unwrap_or_else(|| "(none)".to_string());
+        egui::ComboBox::from_id_source("particle_texture")
             .selected_text(current)
             .show_ui(ui, |ui| {
-                if ui.selectable_label(def_clone.material.is_none(), "(built-in)").clicked() {
-                    def_clone.material = None;
+                if ui.selectable_label(def_clone.texture.is_none(), "(none)").clicked() {
+                    def_clone.texture = None;
                     changed = true;
                 }
-                for (uuid, name) in &materials {
-                    let selected = def_clone.material == Some(*uuid);
+                for (uuid, name) in &textures {
+                    let selected = def_clone.texture == Some(*uuid);
                     if ui.selectable_label(selected, name).clicked() {
-                        def_clone.material = Some(*uuid);
+                        def_clone.texture = Some(*uuid);
                         changed = true;
                     }
                 }
             });
+    });
+
+    egui::CollapsingHeader::new("Material override (advanced)").default_open(false).show(ui, |ui| {
+        ui.weak("Custom material must use a particle shader, or rendering will crash.");
+        ui.horizontal(|ui| {
+            ui.label("Material");
+            let current = def_clone.material
+                .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
+                .unwrap_or_else(|| "(use texture above)".to_string());
+            egui::ComboBox::from_id_source("particle_material")
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(def_clone.material.is_none(), "(use texture above)").clicked() {
+                        def_clone.material = None;
+                        changed = true;
+                    }
+                    for (uuid, name) in &materials {
+                        let selected = def_clone.material == Some(*uuid);
+                        if ui.selectable_label(selected, name).clicked() {
+                            def_clone.material = Some(*uuid);
+                            changed = true;
+                        }
+                    }
+                });
+        });
     });
 
     let cfg = &mut def_clone.config;
@@ -368,7 +400,7 @@ fn render_style_editor(ui: &mut Ui, r: &mut RenderStyle) -> bool {
         });
     });
 
-    if let RenderStyle::Sprite { blend_mode, soft_particles, soft_fade_distance, velocity_stretch, .. } = r {
+    if let RenderStyle::Sprite { flipbook, blend_mode, soft_particles, soft_fade_distance, velocity_stretch } = r {
         let blend_label = match blend_mode {
             BlendMode::Additive => "Additive",
             BlendMode::Alpha => "Alpha",
@@ -393,6 +425,44 @@ fn render_style_editor(ui: &mut Ui, r: &mut RenderStyle) -> bool {
             changed |= ui.add(DragValue::new(soft_fade_distance).speed(0.05).prefix("fade ")).changed();
         }
         changed |= ui.add(DragValue::new(velocity_stretch).speed(0.05).prefix("velocity stretch ")).changed();
+
+        let mut has_flipbook = flipbook.is_some();
+        if ui.checkbox(&mut has_flipbook, "Flipbook (sprite sheet)").changed() {
+            *flipbook = if has_flipbook {
+                Some(FlipbookConfig {
+                    cols: 4,
+                    rows: 4,
+                    frame_count: 16,
+                    fps: 10.0,
+                    blend: false,
+                    randomize_start_frame: false,
+                    fixed_frame: None,
+                })
+            } else {
+                None
+            };
+            changed = true;
+        }
+        if let Some(fb) = flipbook.as_mut() {
+            ui.indent("flipbook_inner", |ui| {
+                ui.horizontal(|ui| {
+                    changed |= ui.add(DragValue::new(&mut fb.cols).speed(1.0).prefix("cols ")).changed();
+                    changed |= ui.add(DragValue::new(&mut fb.rows).speed(1.0).prefix("rows ")).changed();
+                });
+                changed |= ui.add(DragValue::new(&mut fb.frame_count).speed(1.0).prefix("frame count ")).changed();
+                changed |= ui.add(DragValue::new(&mut fb.fps).speed(0.5).prefix("fps ")).changed();
+                changed |= ui.checkbox(&mut fb.blend, "Blend frames").changed();
+                changed |= ui.checkbox(&mut fb.randomize_start_frame, "Random start frame").changed();
+                let mut has_fixed = fb.fixed_frame.is_some();
+                if ui.checkbox(&mut has_fixed, "Lock to single frame").changed() {
+                    fb.fixed_frame = if has_fixed { Some(0) } else { None };
+                    changed = true;
+                }
+                if let Some(f) = fb.fixed_frame.as_mut() {
+                    changed |= ui.add(DragValue::new(f).speed(1.0).prefix("frame ")).changed();
+                }
+            });
+        }
     }
     changed
 }
