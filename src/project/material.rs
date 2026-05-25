@@ -24,6 +24,7 @@ pub fn realize(
             Material::lit_pbr(display.clone(), def.transparent)
         }
     };
+    mat.uuid = def.uuid;
     mat.set_name(&def.name);
     mat.set_color(def.color);
     mat.set_emissive_strength(def.emissive_strength);
@@ -84,9 +85,9 @@ pub fn reconcile(
         return Err(RealizeError::NoDisplay);
     };
 
-    let live_names: Vec<String> = project.materials.iter().map(|m| m.name.clone()).collect();
-    app_state.materials.retain(|m| live_names.contains(&m.name));
-    cache.retain(|uuid, _| project.materials.iter().any(|m| &m.uuid == uuid));
+    let live_uuids: Vec<Uuid> = project.materials.iter().map(|m| m.uuid).collect();
+    app_state.materials.retain(|m| live_uuids.contains(&m.uuid));
+    cache.retain(|uuid, _| live_uuids.contains(uuid));
 
     for def in &project.materials {
         let new_hash = material_hash(def);
@@ -94,7 +95,7 @@ pub fn reconcile(
         if !stale { continue; }
 
         let mat = realize(def, project, display.clone())?;
-        if let Some(pos) = app_state.materials.iter().position(|m| m.name == def.name) {
+        if let Some(pos) = app_state.materials.iter().position(|m| m.uuid == def.uuid) {
             app_state.materials[pos] = mat;
         } else {
             app_state.materials.push(mat);

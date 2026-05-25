@@ -5,7 +5,7 @@ use enigma_3d::light::{Light, LightEmissionType};
 use enigma_3d::object::Object;
 use uuid::Uuid;
 
-use crate::editor::state::{EditorRoot, ProjectState};
+use crate::editor::state::{EditorRoot, MaterialDef, ProjectState};
 use crate::project;
 
 pub fn run_project(project: &ProjectState) {
@@ -45,12 +45,29 @@ pub enum ObjectTemplate {
 }
 
 pub fn add_object(app_state: &mut AppState, template: ObjectTemplate) {
-    let obj = match template {
+    let default_mat = ensure_default_material(app_state);
+    let mut obj = match template {
         ObjectTemplate::Empty => Object::default(),
         ObjectTemplate::Cube => Object::cube(0.5),
         ObjectTemplate::Sphere => Object::sphere(0.5, 16, 24),
     };
+    if let Some(mat_uuid) = default_mat {
+        obj.add_material(mat_uuid);
+    }
     app_state.add_object(obj);
+}
+
+fn ensure_default_material(app_state: &mut AppState) -> Option<Uuid> {
+    let root = app_state.get_state_data_value_mut::<EditorRoot>("editor")?;
+    let project = root.project.as_mut()?;
+    if let Some(first) = project.materials.first() {
+        return Some(first.uuid);
+    }
+    let def = MaterialDef::default_pbr("Default".to_string());
+    let uuid = def.uuid;
+    project.materials.push(def);
+    root.editor.dirty = true;
+    Some(uuid)
 }
 
 pub enum LightTemplate {
@@ -71,7 +88,13 @@ pub fn spawn_from_model(app_state: &mut AppState, model_uuid: Uuid) {
             }
         }
     };
-    let obj = Object::load_from_gltf_resource(&bytes, None);
+    let default_mat = ensure_default_material(app_state);
+    let mut obj = Object::load_from_gltf_resource(&bytes, None);
+    if obj.get_materials().is_empty() {
+        if let Some(mat_uuid) = default_mat {
+            obj.add_material(mat_uuid);
+        }
+    }
     app_state.add_object(obj);
 }
 

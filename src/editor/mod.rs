@@ -11,6 +11,7 @@ use crate::editor::state::{EditorRoot, Modal, PendingDelete};
 pub fn draw(ctx: &Context, app_state: &mut AppState) {
     set_style(ctx);
     reconcile_materials(app_state);
+    apply_material_assignments(app_state);
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         panels::toolbar::draw(ui, app_state);
@@ -142,6 +143,28 @@ fn apply_pending_delete(app_state: &mut AppState, p: PendingDelete) {
             if idx < app_state.light.len() {
                 app_state.light.remove(idx);
             }
+        }
+    }
+}
+
+fn apply_material_assignments(app_state: &mut AppState) {
+    let (scene_uuid, assignments, default_mat) = {
+        let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(project) = root.project.as_ref() else { return; };
+        let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
+        let default_mat = project.materials.first().map(|m| m.uuid);
+        (scene.uuid, project.material_assignments.clone(), default_mat)
+    };
+
+    for obj in app_state.objects.iter_mut() {
+        let obj_uuid = obj.get_unique_id();
+        let target = assignments.get(&(scene_uuid, obj_uuid)).copied().or(default_mat);
+        let Some(mat_uuid) = target else { continue; };
+        let mats = obj.get_materials_mut();
+        if mats.is_empty() {
+            mats.push(mat_uuid);
+        } else if mats[0] != mat_uuid {
+            mats[0] = mat_uuid;
         }
     }
 }
