@@ -401,6 +401,8 @@ mod tests {
             uuid: scene_uuid,
             name: "main".into(),
             relative_path: "scenes/main.json".into(),
+            terrain: None,
+            particle_instances: Vec::new(),
         });
         let mat = MaterialDef::default_pbr("Material 1".into());
         let mat_uuid = mat.uuid;
