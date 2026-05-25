@@ -164,12 +164,71 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             }
         });
 
+    let particle_defs: Vec<(Uuid, String)> = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.as_ref())
+        .map(|p| p.particle_systems.iter().map(|d| (d.uuid, d.config.name.clone())).collect())
+        .unwrap_or_default();
+    let particle_instances: Vec<(Uuid, String)> = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.as_ref())
+        .and_then(|p| p.scenes.get(p.active_scene_index))
+        .map(|s| s.particle_instances.iter().map(|i| (i.uuid, i.name.clone())).collect())
+        .unwrap_or_default();
+
+    let mut spawn_instance_def: Option<Uuid> = None;
+    let mut delete_instance: Option<Uuid> = None;
+    egui::CollapsingHeader::new(format!("Particles ({})", particle_instances.len()))
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.menu_button("+ Add", |ui| {
+                if particle_defs.is_empty() {
+                    ui.label("(create a particle system first)");
+                } else {
+                    for (uuid, name) in &particle_defs {
+                        if ui.button(name).clicked() {
+                            spawn_instance_def = Some(*uuid);
+                            ui.close_menu();
+                        }
+                    }
+                }
+            });
+            for (uuid, name) in &particle_instances {
+                let selected = matches!(current_selection, Selection::ParticleInstance(s) if s == *uuid);
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(selected, name).clicked() {
+                        new_selection = Some(Selection::ParticleInstance(*uuid));
+                    }
+                    if ui.small_button("×").on_hover_text("Delete").clicked() {
+                        delete_instance = Some(*uuid);
+                    }
+                });
+            }
+        });
+
+    let has_terrain = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.as_ref())
+        .and_then(|p| p.scenes.get(p.active_scene_index))
+        .map(|s| s.terrain.is_some())
+        .unwrap_or(false);
+    egui::CollapsingHeader::new("Terrain")
+        .default_open(true)
+        .show(ui, |ui| {
+            let selected = matches!(current_selection, Selection::Terrain);
+            let label = if has_terrain { "Terrain" } else { "Terrain (none)" };
+            if ui.selectable_label(selected, label).clicked() {
+                new_selection = Some(Selection::Terrain);
+            }
+        });
+
     let delete_key = ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
     if delete_key && renaming.is_none() {
         match &current_selection {
             Selection::SceneObject(u) => delete_request = Some(PendingDelete::SceneObject(*u)),
             Selection::Light(i) => delete_request = Some(PendingDelete::Light(*i)),
             Selection::AmbientLight => delete_request = Some(PendingDelete::AmbientLight),
+            Selection::ParticleInstance(u) => delete_request = Some(PendingDelete::ParticleInstance(*u)),
             _ => {}
         }
     }
@@ -177,6 +236,34 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     if let Some(t) = spawn_object { actions::add_object(app_state, t); }
     if let Some(uuid) = spawn_model { actions::spawn_from_model(app_state, uuid); }
     if let Some(t) = spawn_light { actions::add_light(app_state, t); }
+
+    if let Some(def_uuid) = spawn_instance_def {
+        if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            if let Some(project) = root.project.as_mut() {
+                let active = project.active_scene_index;
+                let def_name = project.particle_systems.iter()
+                    .find(|d| d.uuid == def_uuid)
+                    .map(|d| d.config.name.clone())
+                    .unwrap_or_else(|| "particles".into());
+                if let Some(scene) = project.scenes.get_mut(active) {
+                    let inst_uuid = Uuid::new_v4();
+                    let n = scene.particle_instances.len() + 1;
+                    scene.particle_instances.push(crate::editor::state::ParticleInstance {
+                        uuid: inst_uuid,
+                        def_uuid,
+                        name: format!("{} {}", def_name, n),
+                        position: [0.0, 0.0, 0.0],
+                    });
+                    root.editor.selection = Selection::ParticleInstance(inst_uuid);
+                    root.editor.dirty = true;
+                }
+            }
+        }
+    }
+
+    if let Some(u) = delete_instance {
+        delete_request = Some(PendingDelete::ParticleInstance(u));
+    }
 
     if let Some(sel) = new_selection {
         if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
@@ -189,6 +276,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             PendingDelete::SceneObject(_) => "object",
             PendingDelete::Light(_) => "light",
             PendingDelete::AmbientLight => "ambient light",
+            PendingDelete::ParticleInstance(_) => "particle instance",
             _ => "item",
         };
         if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {

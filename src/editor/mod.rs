@@ -17,6 +17,8 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     apply_material_assignments(app_state);
     reconcile_skybox(app_state);
     reconcile_particle_preview(app_state);
+    reconcile_particle_instances(app_state);
+    reconcile_terrain(app_state);
 
     // Keep repainting while a job is running so the spinner animates and
     // the poll picks up completion promptly.
@@ -213,6 +215,21 @@ fn apply_pending_delete(app_state: &mut AppState, p: PendingDelete) {
             if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
                 if let Some(project) = r.project.as_mut() {
                     project.particle_systems.retain(|p| p.uuid != uuid);
+                    // also drop any instances referencing it
+                    for scene in &mut project.scenes {
+                        scene.particle_instances.retain(|i| i.def_uuid != uuid);
+                    }
+                }
+            }
+            app_state.particle_systems.retain(|s| s.handle != uuid);
+        }
+        PendingDelete::ParticleInstance(uuid) => {
+            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if let Some(project) = r.project.as_mut() {
+                    let active = project.active_scene_index;
+                    if let Some(scene) = project.scenes.get_mut(active) {
+                        scene.particle_instances.retain(|i| i.uuid != uuid);
+                    }
                 }
             }
             app_state.particle_systems.retain(|s| s.handle != uuid);
@@ -345,6 +362,150 @@ fn hash_particle_config(cfg: &enigma_3d::particle::ParticleSystemConfig) -> u64 
     let mut h = DefaultHasher::new();
     // ParticleSystemConfig isn't Hash, so hash a serialized form.
     if let Ok(json) = serde_json::to_string(cfg) {
+        json.hash(&mut h);
+    }
+    h.finish()
+}
+
+fn reconcile_particle_instances(app_state: &mut AppState) {
+    // Snapshot all instances in the active scene + def configs.
+    let snapshot: Vec<(uuid::Uuid, uuid::Uuid, [f32; 3], u64)> = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(project) = r.project.as_ref() else { return; };
+        let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
+        scene.particle_instances.iter().filter_map(|inst| {
+            let def = project.particle_systems.iter().find(|d| d.uuid == inst.def_uuid)?;
+            let hash = hash_particle_config(&def.config) ^ position_hash(inst.position);
+            Some((inst.uuid, inst.def_uuid, inst.position, hash))
+        }).collect()
+    };
+
+    let live_uuids: std::collections::HashSet<uuid::Uuid> = snapshot.iter().map(|(u, ..)| *u).collect();
+
+    // Drop instances that are no longer in the scene.
+    let applied = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        r.editor.applied_particle_instances.clone()
+    };
+    let stale_to_remove: Vec<uuid::Uuid> = applied.keys()
+        .filter(|u| !live_uuids.contains(u))
+        .copied()
+        .collect();
+    for u in &stale_to_remove {
+        app_state.particle_systems.retain(|s| s.handle != *u);
+    }
+
+    // Build / rebuild instances.
+    for (inst_uuid, def_uuid, position, hash) in snapshot {
+        let prev_hash = applied.get(&inst_uuid).copied();
+        if prev_hash == Some(hash) { continue; }
+
+        let config = {
+            let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { continue; };
+            let Some(project) = r.project.as_ref() else { continue; };
+            project.particle_systems.iter().find(|d| d.uuid == def_uuid).map(|d| d.config.clone())
+        };
+        let Some(config) = config else { continue; };
+
+        // Remove existing instance with this uuid if any.
+        app_state.particle_systems.retain(|s| s.handle != inst_uuid);
+
+        match enigma_3d::particle::ParticleSystem::from_config(config) {
+            Ok(mut sys) => {
+                sys.handle = inst_uuid;
+                let mut m = [
+                    [1.0_f32, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [position[0], position[1], position[2], 1.0],
+                ];
+                sys.transform = m;
+                app_state.particle_systems.push(sys);
+                if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                    r.editor.applied_particle_instances.insert(inst_uuid, hash);
+                }
+                let _ = m;
+            }
+            Err(e) => {
+                eprintln!("particle instance build failed: {e:?}");
+            }
+        }
+    }
+
+    // Drop stale entries from the applied map.
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.applied_particle_instances.retain(|k, _| live_uuids.contains(k));
+    }
+}
+
+fn position_hash(p: [f32; 3]) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    p[0].to_bits().hash(&mut h);
+    p[1].to_bits().hash(&mut h);
+    p[2].to_bits().hash(&mut h);
+    h.finish()
+}
+
+fn reconcile_terrain(app_state: &mut AppState) {
+    let (desired, applied) = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(project) = r.project.as_ref() else { return; };
+        let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
+        (scene.terrain.clone(), r.editor.applied_terrain)
+    };
+
+    let new_hash = desired.as_ref().map(hash_terrain_def);
+    let stale = new_hash != applied;
+    if !stale { return; }
+
+    if let Some(def) = desired {
+        let Some(display) = app_state.display.clone() else { return; };
+        let mut config = enigma_3d::terrain::TerrainConfig::default();
+        config.width = def.width;
+        config.depth = def.depth;
+        config.max_height = def.max_height;
+        config.resolution = def.resolution;
+        config.tile_count = def.tile_count;
+        config.noise_scale = def.noise_scale;
+        config.noise_amplitude = def.noise_amplitude;
+        config.noise_octaves = def.noise_octaves;
+        config.noise_persistence = def.noise_persistence;
+        config.color_flat_low = def.color_flat_low;
+        config.color_flat_high = def.color_flat_high;
+        config.color_slope = def.color_slope;
+        config.slope_threshold = def.slope_threshold;
+        config.height_mid = def.height_mid;
+        config.uv_scale = def.uv_scale;
+        config.custom_noise = None;
+
+        // tile_count must divide resolution; clamp gracefully.
+        if config.tile_count == 0 || config.resolution % config.tile_count != 0 {
+            eprintln!("terrain: resolution {} must be divisible by tile_count {}",
+                config.resolution, config.tile_count);
+            return;
+        }
+
+        let mut terrain = enigma_3d::terrain::Terrain::new(&display, config);
+        terrain.set_position(def.position);
+        app_state.set_terrain(terrain);
+        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            r.editor.applied_terrain = new_hash;
+        }
+    } else {
+        app_state.terrain = None;
+        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            r.editor.applied_terrain = None;
+        }
+    }
+}
+
+fn hash_terrain_def(def: &crate::editor::state::TerrainDef) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    if let Ok(json) = serde_json::to_string(def) {
         json.hash(&mut h);
     }
     h.finish()

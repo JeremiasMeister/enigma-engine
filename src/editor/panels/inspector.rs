@@ -42,5 +42,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         Selection::Particle(uuid) => {
             inspector::particle_editor::draw(ui, app_state, uuid);
         }
+        Selection::ParticleInstance(uuid) => {
+            inspector::particle_instance::draw(ui, app_state, uuid);
+        }
+        Selection::Terrain => {
+            inspector::terrain_editor::draw(ui, app_state);
+        }
     }
 }

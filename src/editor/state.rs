@@ -120,6 +120,63 @@ pub struct SceneRef {
     pub uuid: Uuid,
     pub name: String,
     pub relative_path: String,
+    #[serde(default)]
+    pub terrain: Option<TerrainDef>,
+    #[serde(default)]
+    pub particle_instances: Vec<ParticleInstance>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct ParticleInstance {
+    pub uuid: Uuid,
+    pub def_uuid: Uuid,
+    pub name: String,
+    pub position: [f32; 3],
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct TerrainDef {
+    pub width: f32,
+    pub depth: f32,
+    pub max_height: f32,
+    pub resolution: u32,
+    pub tile_count: u32,
+    pub noise_scale: f32,
+    pub noise_amplitude: f32,
+    pub noise_octaves: u32,
+    pub noise_persistence: f32,
+    pub color_flat_low: [f32; 3],
+    pub color_flat_high: [f32; 3],
+    pub color_slope: [f32; 3],
+    pub slope_threshold: f32,
+    pub height_mid: f32,
+    pub uv_scale: f32,
+    pub position: [f32; 3],
+    pub material: Option<Uuid>,
+}
+
+impl TerrainDef {
+    pub fn new_default() -> Self {
+        Self {
+            width: 100.0,
+            depth: 100.0,
+            max_height: 15.0,
+            resolution: 128,
+            tile_count: 1,
+            noise_scale: 0.03,
+            noise_amplitude: 1.0,
+            noise_octaves: 4,
+            noise_persistence: 0.5,
+            color_flat_low: [0.22, 0.55, 0.12],
+            color_flat_high: [0.85, 0.85, 0.80],
+            color_slope: [0.40, 0.35, 0.28],
+            slope_threshold: 0.75,
+            height_mid: 0.5,
+            uv_scale: 10.0,
+            position: [0.0, 0.0, 0.0],
+            material: None,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -207,6 +264,8 @@ pub struct EditorState {
     pub material_cache: HashMap<Uuid, u64>,
     pub applied_skybox: Option<Uuid>,
     pub previewed_particle: Option<(Uuid, u64)>,
+    pub applied_terrain: Option<u64>,
+    pub applied_particle_instances: HashMap<Uuid, u64>,
     pub job: Option<RunningJob>,
     pub last_job: Option<JobOutcome>,
     pub project_load: Option<ProjectLoadJob>,
@@ -272,6 +331,8 @@ pub enum Selection {
     Material(Uuid),
     Resource(Uuid),
     Particle(Uuid),
+    ParticleInstance(Uuid),
+    Terrain,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -296,6 +357,7 @@ pub enum PendingDelete {
     Light(usize),
     AmbientLight,
     Particle(Uuid),
+    ParticleInstance(Uuid),
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Debug)]
@@ -318,6 +380,7 @@ pub enum RenameTarget {
     SceneObject { uuid: Uuid, draft: String },
     Light { index: usize, draft: String },
     Particle { uuid: Uuid, draft: String },
+    ParticleInstance { uuid: Uuid, draft: String },
 }
 
 #[cfg(test)]

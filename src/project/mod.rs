@@ -36,6 +36,8 @@ pub fn try_new_project(path: &str, app_state: &mut AppState) -> Result<(), Proje
         uuid: scene_uuid,
         name: "main".into(),
         relative_path: "scenes/main.json".into(),
+        terrain: None,
+        particle_instances: Vec::new(),
     });
     project.active_scene_index = 0;
     project.startup_scene_index = 0;

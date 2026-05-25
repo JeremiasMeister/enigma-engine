@@ -52,7 +52,7 @@ pub fn new_scene(project: &mut ProjectState, name: String) -> Result<Uuid, Scene
     fs::write(&target, "{}").map_err(SceneError::Io)?;
 
     let uuid = Uuid::new_v4();
-    project.scenes.push(SceneRef { uuid, name, relative_path });
+    project.scenes.push(SceneRef { uuid, name, relative_path, terrain: None, particle_instances: Vec::new() });
     Ok(uuid)
 }
 
