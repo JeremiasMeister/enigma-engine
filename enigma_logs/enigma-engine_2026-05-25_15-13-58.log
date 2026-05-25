@@ -1,1 +1,0 @@
-MESSAGE >> An AppState Serializer does not completely serialize the AppState but only scene objects like Objects, Camera, Lights. It does NOT serialize any injections like code in form of functions or GUI!
