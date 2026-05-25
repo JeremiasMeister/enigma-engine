@@ -305,7 +305,7 @@ mod tests {
         let mat_uuid = mat.uuid;
         p.materials.push(mat);
         let object_uuid = Uuid::new_v4();
-        p.set_assignment(scene_uuid, object_uuid, mat_uuid);
+        p.set_assignment(scene_uuid, object_uuid, 0, mat_uuid);
 
         let json = serde_json::to_string_pretty(&p).unwrap();
         let parsed: ProjectState = serde_json::from_str(&json).unwrap();
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(parsed.manifest, p.manifest);
         assert_eq!(parsed.scenes, p.scenes);
         assert_eq!(parsed.materials, p.materials);
-        assert_eq!(parsed.get_assignment(scene_uuid, object_uuid), Some(mat_uuid));
+        assert_eq!(parsed.get_assignment(scene_uuid, object_uuid, 0), Some(mat_uuid));
     }
 
     #[test]
