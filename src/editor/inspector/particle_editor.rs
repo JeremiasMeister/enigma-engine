@@ -18,13 +18,42 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
         def.clone()
     };
 
+    let materials: Vec<(Uuid, String)> = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.as_ref())
+        .map(|p| p.materials.iter().map(|m| (m.uuid, m.name.clone())).collect())
+        .unwrap_or_default();
+
     let mut changed = false;
-    let cfg = &mut def_clone.config;
 
     ui.horizontal(|ui| {
         ui.label("Name");
-        changed |= ui.text_edit_singleline(&mut cfg.name).changed();
+        changed |= ui.text_edit_singleline(&mut def_clone.config.name).changed();
     });
+
+    ui.horizontal(|ui| {
+        ui.label("Material");
+        let current = def_clone.material
+            .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
+            .unwrap_or_else(|| "(none — won't render)".to_string());
+        egui::ComboBox::from_id_source("particle_material")
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(def_clone.material.is_none(), "(none)").clicked() {
+                    def_clone.material = None;
+                    changed = true;
+                }
+                for (uuid, name) in &materials {
+                    let selected = def_clone.material == Some(*uuid);
+                    if ui.selectable_label(selected, name).clicked() {
+                        def_clone.material = Some(*uuid);
+                        changed = true;
+                    }
+                }
+            });
+    });
+
+    let cfg = &mut def_clone.config;
 
     egui::CollapsingHeader::new("Emission").default_open(true).show(ui, |ui| {
         ui.horizontal(|ui| {

@@ -330,9 +330,15 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
     }
 
     if let (Some(uuid), Some(cfg)) = (desired_uuid, desired_config) {
+        let material_uuid = app_state
+            .get_state_data_value::<EditorRoot>("editor")
+            .and_then(|r| r.project.as_ref())
+            .and_then(|p| p.particle_systems.iter().find(|d| d.uuid == uuid))
+            .and_then(|d| d.material);
         match enigma_3d::particle::ParticleSystem::from_config(cfg) {
             Ok(mut sys) => {
                 sys.handle = uuid;
+                sys.material_id = material_uuid;
                 app_state.particle_systems.push(sys);
                 if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
                     let h = r.project.as_ref()
@@ -369,14 +375,21 @@ fn hash_particle_config(cfg: &enigma_3d::particle::ParticleSystemConfig) -> u64 
 
 fn reconcile_particle_instances(app_state: &mut AppState) {
     // Snapshot all instances in the active scene + def configs.
-    let snapshot: Vec<(uuid::Uuid, uuid::Uuid, [f32; 3], u64)> = {
+    let snapshot: Vec<(uuid::Uuid, uuid::Uuid, [f32; 3], u64, Option<uuid::Uuid>)> = {
         let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let Some(project) = r.project.as_ref() else { return; };
         let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
         scene.particle_instances.iter().filter_map(|inst| {
             let def = project.particle_systems.iter().find(|d| d.uuid == inst.def_uuid)?;
-            let hash = hash_particle_config(&def.config) ^ position_hash(inst.position);
-            Some((inst.uuid, inst.def_uuid, inst.position, hash))
+            let mat_part = def.material.map(|m| {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut h = DefaultHasher::new();
+                m.hash(&mut h);
+                h.finish()
+            }).unwrap_or(0);
+            let hash = hash_particle_config(&def.config) ^ position_hash(inst.position) ^ mat_part;
+            Some((inst.uuid, inst.def_uuid, inst.position, hash, def.material))
         }).collect()
     };
 
@@ -396,7 +409,7 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
     }
 
     // Build / rebuild instances.
-    for (inst_uuid, def_uuid, position, hash) in snapshot {
+    for (inst_uuid, def_uuid, position, hash, material_uuid) in snapshot {
         let prev_hash = applied.get(&inst_uuid).copied();
         if prev_hash == Some(hash) { continue; }
 
@@ -413,7 +426,8 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
         match enigma_3d::particle::ParticleSystem::from_config(config) {
             Ok(mut sys) => {
                 sys.handle = inst_uuid;
-                let mut m = [
+                sys.material_id = material_uuid;
+                let m = [
                     [1.0_f32, 0.0, 0.0, 0.0],
                     [0.0, 1.0, 0.0, 0.0],
                     [0.0, 0.0, 1.0, 0.0],

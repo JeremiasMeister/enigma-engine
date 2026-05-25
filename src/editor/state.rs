@@ -27,6 +27,8 @@ pub struct ProjectState {
 pub struct ParticleSystemDef {
     pub uuid: Uuid,
     pub config: ParticleSystemConfig,
+    #[serde(default)]
+    pub material: Option<Uuid>,
 }
 
 impl ParticleSystemDef {
@@ -35,6 +37,7 @@ impl ParticleSystemDef {
         Self {
             uuid: Uuid::new_v4(),
             config,
+            material: None,
         }
     }
 }
