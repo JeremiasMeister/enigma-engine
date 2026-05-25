@@ -129,7 +129,7 @@ pub struct EditorState {
 pub enum Selection {
     #[default] None,
     SceneObject(Uuid),
-    Light(Uuid),
+    Light(usize),
     Camera,
     Material(Uuid),
     Resource(Uuid),
@@ -154,7 +154,7 @@ pub enum PendingDelete {
     Material(Uuid),
     Scene(usize),
     SceneObject(Uuid),
-    Light(Uuid),
+    Light(usize),
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Debug)]
@@ -174,7 +174,7 @@ pub enum RenameTarget {
     Material { uuid: Uuid, draft: String },
     Scene { index: usize, draft: String },
     SceneObject { uuid: Uuid, draft: String },
-    Light { uuid: Uuid, draft: String },
+    Light { index: usize, draft: String },
 }
 
 #[cfg(test)]
