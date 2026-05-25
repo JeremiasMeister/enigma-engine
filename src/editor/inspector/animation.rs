@@ -26,7 +26,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
             .map(|s| s.looping)
             .unwrap_or(false);
 
-        let label = current_name.clone().unwrap_or_else(|| "<None>".to_string());
+        let label = current_name
+            .as_ref()
+            .filter(|n| clip_names.iter().any(|c| c == n.as_str()))
+            .cloned()
+            .unwrap_or_else(|| "<None>".to_string());
 
         let mut picked: Option<Option<String>> = None;
         egui::ComboBox::from_label("Clip")
@@ -111,7 +115,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
 
         // --- Read-out ---
         if let Some(name) = clip_name_for_readout {
-            ui.label(format!("{:.2} / {:.2}s   {}", time_value, duration, name));
+            if duration > 0.0 {
+                ui.label(format!("{:.2} / {:.2}s   {}", time_value, duration, name));
+            }
         }
     });
 }
