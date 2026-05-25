@@ -8,7 +8,8 @@ use crate::editor::state::{ProjectState, SceneRef};
 pub fn save_active(project: &ProjectState, app_state: &AppState) -> Result<(), SceneError> {
     let scene = project.scenes.get(project.active_scene_index).ok_or(SceneError::NoActiveScene)?;
     let path = scene_path(project, scene);
-    let serializer = app_state.to_serializer();
+    let mut serializer = app_state.to_serializer();
+    normalize_animation_times(&mut serializer.objects);
     let text = serde_json::to_string_pretty(&serializer).map_err(SceneError::Parse)?;
     fs::write(&path, text).map_err(SceneError::Io)?;
     Ok(())
@@ -92,6 +93,17 @@ fn clear_scene(app_state: &mut AppState) {
     // camera, ambient_light, skybox left intact — re-set by inject_serializer if present in the scene.
 }
 
+/// Zero out `current_animation.time` on every object serializer so the saved scene
+/// always starts the chosen clip from the beginning. Loop, speed, and clip name
+/// are preserved. Operates on the serializer copy only; live objects are unaffected.
+pub(crate) fn normalize_animation_times(objects: &mut [enigma_3d::object::ObjectSerializer]) {
+    for obj_ser in objects.iter_mut() {
+        if let Some(state) = obj_ser.current_animation.as_mut() {
+            state.time = 0.0;
+        }
+    }
+}
+
 fn sanitize(name: &str) -> String {
     name.chars().map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect()
 }
@@ -156,6 +168,31 @@ mod tests {
             Err(SceneError::AlreadyExists) => (),
             other => panic!("expected AlreadyExists, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn normalize_animation_times_zeros_time_on_serializer() {
+        use enigma_3d::object::{Object, ObjectSerializer};
+        use enigma_3d::animation::Animation;
+
+        // Build an object with a played animation at time=1.7s.
+        let mut obj = Object::new(Some("rig".into()));
+        let anim = Animation { name: "Walk".into(), duration: 3.0, channels: Vec::new() };
+        obj.get_animations_mut().insert("Walk".into(), anim);
+        obj.play_animation("Walk", true);
+        if let Some(state) = obj.get_current_animation_mut().as_mut() {
+            state.time = 1.7;
+            state.speed = 1.0;
+        }
+
+        let mut serializers: Vec<ObjectSerializer> = vec![obj.to_serializer()];
+        normalize_animation_times(&mut serializers);
+
+        let state = serializers[0].current_animation.as_ref().expect("Some");
+        assert_eq!(state.time, 0.0);
+        assert_eq!(state.name, "Walk");
+        assert_eq!(state.speed, 1.0);
+        assert_eq!(state.looping, true);
     }
 
     #[test]
