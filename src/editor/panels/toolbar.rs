@@ -1,6 +1,6 @@
 use egui::Ui;
 use enigma_3d::AppState;
-use rfd::AsyncFileDialog;
+use rfd::FileDialog;
 
 use crate::editor::actions;
 use crate::editor::state::{EditorRoot, Modal, ProjectState};
@@ -139,32 +139,14 @@ fn save_scene(app_state: &mut AppState) {
 }
 
 fn pick_folder() -> Option<String> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    async_std::task::spawn(async move {
-        if let Some(p) = AsyncFileDialog::new().pick_folder().await {
-            let _ = tx.send(p.path().to_string_lossy().into_owned());
-        } else {
-            let _ = tx.send(String::new());
-        }
-    });
-    match rx.recv() {
-        Ok(s) if !s.is_empty() => Some(s),
-        _ => None,
-    }
+    FileDialog::new()
+        .pick_folder()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 fn pick_file(filter: &str) -> Option<String> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let f = filter.to_string();
-    async_std::task::spawn(async move {
-        if let Some(p) = AsyncFileDialog::new().add_filter(&f, &[&f]).pick_file().await {
-            let _ = tx.send(p.path().to_string_lossy().into_owned());
-        } else {
-            let _ = tx.send(String::new());
-        }
-    });
-    match rx.recv() {
-        Ok(s) if !s.is_empty() => Some(s),
-        _ => None,
-    }
+    FileDialog::new()
+        .add_filter(filter, &[filter])
+        .pick_file()
+        .map(|p| p.to_string_lossy().into_owned())
 }

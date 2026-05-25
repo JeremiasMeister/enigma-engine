@@ -1,6 +1,6 @@
 use egui::Ui;
 use enigma_3d::AppState;
-use rfd::AsyncFileDialog;
+use rfd::FileDialog;
 
 use crate::editor::state::{EditorRoot, MaterialDef, Modal, ResourceKind, ResourceTab, Selection};
 use crate::project;
@@ -185,22 +185,9 @@ fn filter_for(kind: ResourceKind) -> Vec<&'static str> {
 }
 
 fn pick_file(exts: &[&str]) -> Option<String> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let owned: Vec<String> = exts.iter().map(|s| s.to_string()).collect();
-    async_std::task::spawn(async move {
-        let mut dialog = AsyncFileDialog::new();
-        if !owned.is_empty() {
-            let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
-            dialog = dialog.add_filter("file", &refs);
-        }
-        if let Some(p) = dialog.pick_file().await {
-            let _ = tx.send(p.path().to_string_lossy().into_owned());
-        } else {
-            let _ = tx.send(String::new());
-        }
-    });
-    match rx.recv() {
-        Ok(s) if !s.is_empty() => Some(s),
-        _ => None,
+    let mut dialog = FileDialog::new();
+    if !exts.is_empty() {
+        dialog = dialog.add_filter("file", exts);
     }
+    dialog.pick_file().map(|p| p.to_string_lossy().into_owned())
 }

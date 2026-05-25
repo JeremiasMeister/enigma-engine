@@ -20,7 +20,18 @@
 - [x] Task 4: resource pipeline + 5 tests (commit `e4f2fae`)
 - [x] Task 5: scene management + 5 tests (commit `84433ff`)
 - [x] Task 6: material realization + 3 tests (commit `97eb85f`)
-- [ ] Task 7 onwards: UI work
+- [x] Task 7: docked layout skeleton (commit `508b372`)
+- [x] Task 8: toolbar — File/Play/Build (commit `6c7a26b`)
+- [x] Task 9: hierarchy list + selection (commit `edabd87`)
+- [x] Task 10: hierarchy Add menu (commit `e136799`)
+- [x] Task 11: inspector dispatch shell (commit `7bcd1e7` series)
+- [x] Task 12: inspector Transform (commit `7bcd1e7`)
+- [x] Task 13: inspector Mesh & Material (commit `7cf3292`)
+- [x] Tasks 14-17: inspector Light/Camera/Resource meta + Material editor with reconcile (commit `73d8e29`)
+- [x] Tasks 18-20: resource browser, scenes tab, Scene menu + modal handler (commit `360f5da`)
+- [x] Task 21: viewport ray-pick (commit `532e49d`)
+- [~] Task 22: drag-drop polish — SKIPPED per plan guidance (dropdown sufficient)
+- [x] Task 23: verification — 16 tests pass, release build clean, manual smoke test pending Jere
 
 **Total test count after Task 6:** 16/16 passing. Verify with `cargo test --bin enigma-engine`.
 
@@ -29,6 +40,14 @@
 1. **Task 5 — `scene::switch` signature.** The plan specified `switch(project, app_state, display, target_index)`. The implementer changed it to `switch(project, app_state, target_index)` and pulls the display from `app_state.display.clone()` internally. A new `SceneError::NoDisplay` variant covers the `None` case. Cleaner — callers don't need to thread the display through. **Tasks 17/20 that the plan describes as taking a `Display` parameter should follow the same pattern: get it from `app_state.display`.**
 
 2. **Task 6 — added `glium = "0.33.0"` as a direct dep.** Required so `enigma-engine` can name `Display<WindowSurface>` in function signatures. Version matches enigma-3d's pin. The plan's later tasks that use `Display` in signatures can rely on this — no further Cargo.toml changes needed for glium.
+
+3. **Task 9 — `Selection::Light(usize)` not `Selection::Light(Uuid)`.** enigma's `Light` struct has no `uuid` field; lights are identified positionally. Same change applied to `PendingDelete::Light` and `RenameTarget::Light`. Hierarchy and inspector code use indices.
+
+4. **Task 10 — Cube/Sphere primitives included.** Plan called for Empty + From Model only. enigma ships `Object::cube(half_extent)` and `Object::sphere(radius, stacks, slices)` so we added them to the menu. Plane/Quad still omitted (no built-in).
+
+5. **Task 21 — type name is `RayCast`, not `Ray`.** And `nalgebra` was added as a direct dep (matches enigma's 0.32.3) so editor code can name `Vector3<f32>` for the ray construction.
+
+6. **Task 22 skipped intentionally.** Plan flagged drag-drop as optional polish; egui 0.23 lacks built-in DnD support and the dropdown UX is already complete. Resource browser drag source and material slot drop target left unwired.
 
 **Verified enigma_3d field visibility (relevant for upcoming tasks):**
 
