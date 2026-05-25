@@ -1,7 +1,9 @@
+use enigma_3d::AppState;
 use enigma_3d::material::Material;
 use enigma_3d::material::TextureType;
 use glium::Display;
 use glium::glutin::surface::WindowSurface;
+use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use uuid::Uuid;
@@ -73,10 +75,40 @@ pub fn material_hash(def: &MaterialDef) -> u64 {
     h.finish()
 }
 
+pub fn reconcile(
+    project: &ProjectState,
+    app_state: &mut AppState,
+    cache: &mut HashMap<Uuid, u64>,
+) -> Result<(), RealizeError> {
+    let Some(display) = app_state.display.clone() else {
+        return Err(RealizeError::NoDisplay);
+    };
+
+    let live_names: Vec<String> = project.materials.iter().map(|m| m.name.clone()).collect();
+    app_state.materials.retain(|m| live_names.contains(&m.name));
+    cache.retain(|uuid, _| project.materials.iter().any(|m| &m.uuid == uuid));
+
+    for def in &project.materials {
+        let new_hash = material_hash(def);
+        let stale = cache.get(&def.uuid).copied() != Some(new_hash);
+        if !stale { continue; }
+
+        let mat = realize(def, project, display.clone())?;
+        if let Some(pos) = app_state.materials.iter().position(|m| m.name == def.name) {
+            app_state.materials[pos] = mat;
+        } else {
+            app_state.materials.push(mat);
+        }
+        cache.insert(def.uuid, new_hash);
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub enum RealizeError {
     TextureNotFound,
     ShaderNotFound,
+    NoDisplay,
 }
 
 #[cfg(test)]

@@ -6,8 +6,11 @@ pub mod inspector;
 use egui::Context;
 use enigma_3d::AppState;
 
+use crate::editor::state::EditorRoot;
+
 pub fn draw(ctx: &Context, app_state: &mut AppState) {
     set_style(ctx);
+    reconcile_materials(app_state);
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         panels::toolbar::draw(ui, app_state);
@@ -42,6 +45,23 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         .show(ctx, |ui| {
             panels::viewport::draw(ui, app_state);
         });
+}
+
+fn reconcile_materials(app_state: &mut AppState) {
+    let project = match app_state.get_state_data_value::<EditorRoot>("editor") {
+        Some(r) => r.project.clone(),
+        None => return,
+    };
+    let Some(project) = project else { return; };
+
+    let mut cache = match app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        Some(r) => std::mem::take(&mut r.editor.material_cache),
+        None => return,
+    };
+    let _ = crate::project::material::reconcile(&project, app_state, &mut cache);
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.material_cache = cache;
+    }
 }
 
 fn set_style(ctx: &Context) {
