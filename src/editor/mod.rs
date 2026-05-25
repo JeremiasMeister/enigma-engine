@@ -374,7 +374,10 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
             .and_then(|r| r.project.as_ref())
             .and_then(|p| p.particle_systems.iter().find(|d| d.uuid == uuid))
             .and_then(|d| d.material);
-        let material_uuid = explicit_mat.or_else(|| default_particle_material(app_state, &cfg.render));
+        // Only honor explicit_mat if it actually exists in app_state.materials —
+        // otherwise the renderer would silently skip the particle system.
+        let explicit_valid = explicit_mat.filter(|u| app_state.materials.iter().any(|m| m.uuid == *u));
+        let material_uuid = explicit_valid.or_else(|| default_particle_material(app_state, &cfg.render));
         match enigma_3d::particle::ParticleSystem::from_config(cfg) {
             Ok(mut sys) => {
                 sys.handle = uuid;
@@ -462,7 +465,8 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
 
         // Remove existing instance with this uuid if any.
         app_state.particle_systems.retain(|s| s.handle != inst_uuid);
-        let material_uuid = explicit_material.or_else(|| default_particle_material(app_state, &config.render));
+        let explicit_valid = explicit_material.filter(|u| app_state.materials.iter().any(|m| m.uuid == *u));
+        let material_uuid = explicit_valid.or_else(|| default_particle_material(app_state, &config.render));
 
         match enigma_3d::particle::ParticleSystem::from_config(config) {
             Ok(mut sys) => {
