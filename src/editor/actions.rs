@@ -29,6 +29,12 @@ pub fn build_project(app_state: &mut AppState, release: bool) {
     start_cargo(app_state, &project, &label, args);
 }
 
+pub fn update_dependencies(app_state: &mut AppState) {
+    if is_busy(app_state) { return; }
+    let Some(project) = save_before_run(app_state) else { return; };
+    start_cargo(app_state, &project, "Update Dependencies", vec!["update".into()]);
+}
+
 pub fn is_busy(app_state: &AppState) -> bool {
     app_state.get_state_data_value::<EditorRoot>("editor")
         .map(|r| r.editor.job.is_some())

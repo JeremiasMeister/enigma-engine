@@ -49,6 +49,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             if ui.button("Release Build").clicked() {
                 actions::build_project(app_state, true);
             }
+            if ui.button("Update Dependencies").clicked() {
+                actions::update_dependencies(app_state);
+            }
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
