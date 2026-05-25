@@ -8,24 +8,40 @@ use uuid::Uuid;
 use crate::editor::state::{EditorRoot, MaterialDef, ProjectState};
 use crate::project;
 
-pub fn run_project(project: &ProjectState) {
-    if let Err(e) = stage_startup_scene(project) {
-        eprintln!("stage startup scene failed: {e}");
-        return;
-    }
-    spawn_cargo(project, &["run"]);
+pub fn run_project(app_state: &mut AppState) {
+    let Some(project) = save_before_run(app_state) else { return; };
+    spawn_cargo(&project, &["run"]);
 }
 
-pub fn build_project(project: &ProjectState, release: bool) {
-    if let Err(e) = stage_startup_scene(project) {
-        eprintln!("stage startup scene failed: {e}");
-        return;
-    }
+pub fn build_project(app_state: &mut AppState, release: bool) {
+    let Some(project) = save_before_run(app_state) else { return; };
     if release {
-        spawn_cargo(project, &["build", "--release"]);
+        spawn_cargo(&project, &["build", "--release"]);
     } else {
-        spawn_cargo(project, &["build"]);
+        spawn_cargo(&project, &["build"]);
     }
+}
+
+fn save_before_run(app_state: &mut AppState) -> Option<ProjectState> {
+    let project = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.clone())?;
+    if let Err(e) = project::scene::save_active(&project, app_state) {
+        eprintln!("save scene failed: {e:?}");
+        return None;
+    }
+    if let Err(e) = project::try_save_project(app_state) {
+        eprintln!("save project failed: {e}");
+        return None;
+    }
+    if let Err(e) = stage_startup_scene(&project) {
+        eprintln!("stage startup scene failed: {e}");
+        return None;
+    }
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.dirty = false;
+    }
+    Some(project)
 }
 
 const STARTUP_SCENE_FILE: &str = "src/resources/scenes/enigma_main_scene.json";

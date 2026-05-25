@@ -43,19 +43,13 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
 
         ui.add_enabled_ui(project_loaded, |ui| {
             if ui.button("Play").clicked() {
-                if let Some(p) = current_project_clone(app_state) {
-                    actions::run_project(&p);
-                }
+                actions::run_project(app_state);
             }
             if ui.button("Debug Build").clicked() {
-                if let Some(p) = current_project_clone(app_state) {
-                    actions::build_project(&p, false);
-                }
+                actions::build_project(app_state, false);
             }
             if ui.button("Release Build").clicked() {
-                if let Some(p) = current_project_clone(app_state) {
-                    actions::build_project(&p, true);
-                }
+                actions::build_project(app_state, true);
             }
         });
 
