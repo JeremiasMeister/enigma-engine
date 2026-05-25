@@ -250,7 +250,9 @@ fn list_particles(ui: &mut Ui, app_state: &mut AppState) {
         if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
             if let Some(project) = root.project.as_mut() {
                 let name = format!("Particles {}", project.particle_systems.len() + 1);
-                let def = ParticleSystemDef::new_default(name);
+                let default_mat = ensure_particle_default_material(project);
+                let mut def = ParticleSystemDef::new_default(name);
+                def.material = default_mat;
                 let uuid = def.uuid;
                 project.particle_systems.push(def);
                 root.editor.selection = Selection::Particle(uuid);
@@ -260,6 +262,23 @@ fn list_particles(ui: &mut Ui, app_state: &mut AppState) {
     }
 
     finalize(app_state, new_sel, delete, "particle system", rename_start, rename_commit, rename_cancel);
+}
+
+/// Returns the uuid of a project material suitable for particle rendering.
+/// Reuses an existing "Particles Default" material if present, otherwise creates one.
+fn ensure_particle_default_material(project: &mut crate::editor::state::ProjectState) -> Option<Uuid> {
+    if let Some(m) = project.materials.iter().find(|m| m.name == "Particles Default") {
+        return Some(m.uuid);
+    }
+    let mut def = MaterialDef::default_pbr("Particles Default".to_string());
+    // additive-friendly: white emissive default, transparent enabled
+    def.color = [1.0, 1.0, 1.0];
+    def.emissive_strength = 1.0;
+    def.transparent = true;
+    def.transparency_strength = 1.0;
+    let uuid = def.uuid;
+    project.materials.push(def);
+    Some(uuid)
 }
 
 fn list_scenes(ui: &mut Ui, app_state: &mut AppState) {
