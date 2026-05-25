@@ -4,10 +4,15 @@ pub mod material;
 
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Instant;
 use enigma_3d::{AppState, AppStateSerializer};
 use uuid::Uuid;
 
-use crate::editor::state::{EditorRoot, ProjectState, SceneRef};
+use crate::editor::state::{
+    EditorRoot, ProjectLoadJob, ProjectLoadMessage, ProjectLoadPayload, ProjectState, SceneRef,
+};
 
 const PROJECT_FILE: &str = "enigma_project.json";
 
@@ -93,6 +98,138 @@ fn clear_scene(app_state: &mut AppState) {
     app_state.objects.clear();
     app_state.light.clear();
     app_state.materials.clear();
+}
+
+pub fn start_open_project(path: &str, app_state: &mut AppState) {
+    let path = path.replace('\\', "/");
+    let (tx, rx) = mpsc::channel();
+    let started_at = Instant::now();
+    thread::spawn(move || {
+        if !is_valid_project_file(&path) {
+            let _ = tx.send(ProjectLoadMessage::Done(Err(format!("not a valid project file: {path}"))));
+            return;
+        }
+        let _ = tx.send(ProjectLoadMessage::Status(format!("reading {path}")));
+        let text = match fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = tx.send(ProjectLoadMessage::Done(Err(format!("read failed: {e}"))));
+                return;
+            }
+        };
+        let _ = tx.send(ProjectLoadMessage::Status("parsing project file".into()));
+        let mut project: ProjectState = match serde_json::from_str(&text) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tx.send(ProjectLoadMessage::Done(Err(format!("project parse: {e}"))));
+                return;
+            }
+        };
+        let root_dir = match Path::new(&path).parent().and_then(|p| p.to_str()) {
+            Some(s) => s.to_string(),
+            None => {
+                let _ = tx.send(ProjectLoadMessage::Done(Err("bad project path".into())));
+                return;
+            }
+        };
+        project.root_path = root_dir.clone();
+
+        let scene_text = if let Some(scene) = project.scenes.get(project.active_scene_index) {
+            let scene_path = Path::new(&root_dir).join("src/resources").join(&scene.relative_path);
+            let _ = tx.send(ProjectLoadMessage::Status(format!("reading scene {}", scene.name)));
+            match fs::read_to_string(&scene_path) {
+                Ok(t) => Some(t),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        let _ = tx.send(ProjectLoadMessage::Done(Ok(ProjectLoadPayload {
+            project,
+            scene_text,
+        })));
+    });
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.project_load = Some(ProjectLoadJob {
+            label: "Loading Project".into(),
+            started_at,
+            rx,
+            lines: Vec::new(),
+        });
+    }
+}
+
+pub fn poll_project_load(app_state: &mut AppState) {
+    let mut completion: Option<Result<ProjectLoadPayload, String>> = None;
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        if let Some(job) = r.editor.project_load.as_mut() {
+            loop {
+                match job.rx.try_recv() {
+                    Ok(ProjectLoadMessage::Status(s)) => {
+                        job.lines.push(s);
+                        if job.lines.len() > 200 {
+                            let overflow = job.lines.len() - 200;
+                            job.lines.drain(0..overflow);
+                        }
+                    }
+                    Ok(ProjectLoadMessage::Done(res)) => {
+                        completion = Some(res);
+                        break;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        completion = Some(Err("loader disconnected".into()));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let Some(result) = completion else { return; };
+
+    match result {
+        Err(e) => {
+            eprintln!("open project failed: {e}");
+            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                r.editor.project_load = None;
+            }
+        }
+        Ok(payload) => {
+            apply_load_payload(app_state, payload);
+            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                r.editor.project_load = None;
+            }
+        }
+    }
+}
+
+fn apply_load_payload(app_state: &mut AppState, payload: ProjectLoadPayload) {
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.material_cache.clear();
+        r.editor.applied_skybox = None;
+        r.project = Some(payload.project);
+    }
+
+    let Some(scene_text) = payload.scene_text else { return; };
+    let trimmed = scene_text.trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        clear_scene(app_state);
+        return;
+    }
+    let serializer: AppStateSerializer = match serde_json::from_str(&scene_text) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("scene parse on open: {e}");
+            return;
+        }
+    };
+    let Some(display) = app_state.display.clone() else { return; };
+    clear_scene(app_state);
+    app_state.inject_serializer(serializer, display, false);
 }
 
 pub fn try_save_project(app_state: &mut AppState) -> Result<(), ProjectError> {

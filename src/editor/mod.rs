@@ -11,16 +11,17 @@ use crate::editor::state::{EditorRoot, Modal, PendingDelete};
 pub fn draw(ctx: &Context, app_state: &mut AppState) {
     set_style(ctx);
     crate::editor::actions::poll_job(app_state);
+    crate::project::poll_project_load(app_state);
     reconcile_materials(app_state);
     apply_material_assignments(app_state);
     reconcile_skybox(app_state);
 
     // Keep repainting while a job is running so the spinner animates and
     // the poll picks up completion promptly.
-    if app_state.get_state_data_value::<EditorRoot>("editor")
-        .map(|r| r.editor.job.is_some())
-        .unwrap_or(false)
-    {
+    let busy = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.job.is_some() || r.editor.project_load.is_some())
+        .unwrap_or(false);
+    if busy {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 
@@ -67,12 +68,16 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
 }
 
 fn draw_job_overlay(ctx: &Context, app_state: &mut AppState) {
-    let (label, elapsed, lines) = {
+    let (job_label, job_elapsed, job_lines) = {
         let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
-        let Some(job) = r.editor.job.as_ref() else { return; };
-        (job.label.clone(), job.started_at.elapsed(), job.lines.clone())
+        match (r.editor.job.as_ref(), r.editor.project_load.as_ref()) {
+            (Some(j), _) => (j.label.clone(), j.started_at.elapsed(), j.lines.clone()),
+            (None, Some(j)) => (j.label.clone(), j.started_at.elapsed(), j.lines.clone()),
+            (None, None) => return,
+        }
     };
 
+    let (label, elapsed, lines) = (job_label, job_elapsed, job_lines);
     egui::Window::new("cargo")
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .collapsible(false)

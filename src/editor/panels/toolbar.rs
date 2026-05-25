@@ -19,9 +19,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             }
             if ui.button("Open Project").clicked() {
                 if let Some(path) = pick_file("json") {
-                    if let Err(e) = project::try_open_project(&path, app_state) {
-                        eprintln!("open project failed: {e}");
-                    }
+                    project::start_open_project(&path, app_state);
                 }
                 ui.close_menu();
             }

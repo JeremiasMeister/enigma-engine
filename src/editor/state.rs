@@ -175,6 +175,24 @@ pub struct EditorState {
     pub applied_skybox: Option<Uuid>,
     pub job: Option<RunningJob>,
     pub last_job: Option<JobOutcome>,
+    pub project_load: Option<ProjectLoadJob>,
+}
+
+pub struct ProjectLoadJob {
+    pub label: String,
+    pub started_at: std::time::Instant,
+    pub rx: std::sync::mpsc::Receiver<ProjectLoadMessage>,
+    pub lines: Vec<String>,
+}
+
+pub enum ProjectLoadMessage {
+    Status(String),
+    Done(Result<ProjectLoadPayload, String>),
+}
+
+pub struct ProjectLoadPayload {
+    pub project: ProjectState,
+    pub scene_text: Option<String>,
 }
 
 pub struct RunningJob {
