@@ -16,6 +16,8 @@ pub struct ProjectState {
     // because JSON map keys must be strings and (Uuid, Uuid) isn't one.
     #[serde(default)]
     pub material_assignments: Vec<MaterialAssignment>,
+    #[serde(default)]
+    pub skybox: Option<Uuid>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -36,6 +38,7 @@ impl ProjectState {
             startup_scene_index: 0,
             materials: Vec::new(),
             material_assignments: Vec::new(),
+            skybox: None,
         }
     }
 
@@ -160,6 +163,7 @@ pub struct EditorState {
     pub dirty: bool,
     pub renaming: Option<RenameTarget>,
     pub material_cache: HashMap<Uuid, u64>,
+    pub applied_skybox: Option<Uuid>,
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]

@@ -12,6 +12,7 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     set_style(ctx);
     reconcile_materials(app_state);
     apply_material_assignments(app_state);
+    reconcile_skybox(app_state);
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         panels::toolbar::draw(ui, app_state);
@@ -174,6 +175,66 @@ fn apply_material_assignments(app_state: &mut AppState) {
             mats[0] = mat_uuid;
         }
     }
+}
+
+fn reconcile_skybox(app_state: &mut AppState) {
+    let (desired, applied) = match app_state.get_state_data_value::<EditorRoot>("editor") {
+        Some(r) => (
+            r.project.as_ref().and_then(|p| p.skybox),
+            r.editor.applied_skybox,
+        ),
+        None => return,
+    };
+    if desired == applied {
+        return;
+    }
+
+    if let Some(uuid) = desired {
+        let bytes = {
+            let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+            let Some(p) = r.project.as_ref() else { return; };
+            match crate::project::resource::bytes(p, uuid) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("skybox texture load failed: {e:?}");
+                    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                        r.editor.applied_skybox = desired;
+                    }
+                    return;
+                }
+            }
+        };
+        let Some(display) = app_state.display.clone() else { return; };
+        let texture = enigma_3d::texture::Texture::from_resource(&display, &bytes);
+        apply_skybox_texture(app_state, texture, display);
+    } else {
+        app_state.skybox = None;
+        app_state.skybox_texture = None;
+    }
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.applied_skybox = desired;
+    }
+}
+
+fn apply_skybox_texture(
+    app_state: &mut AppState,
+    texture: enigma_3d::texture::Texture,
+    display: glium::Display<glium::glutin::surface::WindowSurface>,
+) {
+    use enigma_3d::material::{Material, TextureType};
+    use enigma_3d::object::Object;
+
+    let mut material = Material::unlit(display.clone(), false);
+    material.set_name("INTERNAL::SkyBox");
+    material.set_texture(texture, TextureType::Albedo);
+    let mut object = Object::load_from_gltf_resource(enigma_3d::resources::skybox(), None);
+    object.add_material(material.uuid);
+    object.get_shapes_mut()[0].set_material_from_object_list(0);
+    object.name = "Skybox".to_string();
+    object.transform.set_scale([1.0, 1.0, 1.0]);
+    app_state.add_material(material);
+    app_state.set_skybox(object);
 }
 
 fn reconcile_materials(app_state: &mut AppState) {

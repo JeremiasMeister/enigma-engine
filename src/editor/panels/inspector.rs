@@ -15,7 +15,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
 
     match selection {
         Selection::None => {
-            ui.label("Select something in the hierarchy or resource browser.");
+            inspector::scene_settings::draw(ui, app_state);
+            ui.separator();
+            ui.label("Select something in the hierarchy or resource browser to inspect it.");
         }
         Selection::SceneObject(uuid) => {
             inspector::transform::draw_for_object(ui, app_state, uuid);
