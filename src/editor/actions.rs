@@ -9,15 +9,42 @@ use crate::editor::state::{EditorRoot, MaterialDef, ProjectState};
 use crate::project;
 
 pub fn run_project(project: &ProjectState) {
+    if let Err(e) = stage_startup_scene(project) {
+        eprintln!("stage startup scene failed: {e}");
+        return;
+    }
     spawn_cargo(project, &["run"]);
 }
 
 pub fn build_project(project: &ProjectState, release: bool) {
+    if let Err(e) = stage_startup_scene(project) {
+        eprintln!("stage startup scene failed: {e}");
+        return;
+    }
     if release {
         spawn_cargo(project, &["build", "--release"]);
     } else {
         spawn_cargo(project, &["build"]);
     }
+}
+
+const STARTUP_SCENE_FILE: &str = "src/resources/scenes/enigma_main_scene.json";
+
+fn stage_startup_scene(project: &ProjectState) -> std::io::Result<()> {
+    let scene = project.scenes.get(project.startup_scene_index)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "startup scene index out of range"))?;
+    let src = std::path::Path::new(&project.root_path)
+        .join("src/resources")
+        .join(&scene.relative_path);
+    let dst = std::path::Path::new(&project.root_path).join(STARTUP_SCENE_FILE);
+    if src == dst {
+        return Ok(());
+    }
+    if !src.exists() {
+        std::fs::write(&src, "{}")?;
+    }
+    std::fs::copy(&src, &dst)?;
+    Ok(())
 }
 
 fn spawn_cargo(project: &ProjectState, args: &[&str]) {
