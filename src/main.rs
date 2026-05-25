@@ -4,9 +4,9 @@ mod resources;
 mod serialization;
 
 use std::sync::Arc;
-use enigma::AppState;
-use enigma::camera::Camera;
-use enigma::object::ObjectSerializer;
+use enigma_3d::AppState;
+use enigma_3d::camera::Camera;
+use enigma_3d::object::ObjectSerializer;
 use serde::{Deserialize, Serialize};
 use crate::resources::{BinaryResource, TextResource};
 
@@ -89,7 +89,7 @@ impl Engine {
 
 fn main() {
     let mut app_state = AppState::new();
-    let event_loop = enigma::EventLoop::new("Enigma 3d - Engine", 1080, 720);
+    let event_loop = enigma_3d::EventLoop::new("Enigma 3d - Engine", 1080, 720);
     event_loop.set_icon_from_resource(resources::ICON);
 
     let camera = Camera::new(None, None, Some(60.0), Some(16.0/9.0), Some(0.1), Some(100.0));
