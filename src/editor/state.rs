@@ -34,14 +34,20 @@ pub struct ParticleSystemDef {
 impl ParticleSystemDef {
     pub fn new_default(name: String) -> Self {
         let mut config = enigma_3d::particle::ParticleSystem::new(&name).config;
-        // Enigma's default is silent (rate 0, not looped) — make new systems emit
-        // something so users see a result immediately.
-        config.emission_rate = 20.0;
+        // Enigma's default is silent and tiny — bump to a visible, looping system
+        // so a new particle shows immediately on the viewport.
+        config.max_particles = 256;
+        config.emission_rate = 30.0;
         config.looped = true;
         config.duration = 5.0;
-        config.initial_lifetime = enigma_3d::particle::Range::new(1.0, 2.0);
-        config.initial_size = enigma_3d::particle::Range::new(0.1, 0.15);
-        config.gravity = Some([0.0, -1.0, 0.0]);
+        config.initial_lifetime = enigma_3d::particle::Range::new(1.5, 3.0);
+        config.initial_size = enigma_3d::particle::Range::new(0.4, 0.8);
+        config.initial_velocity = enigma_3d::particle::InitialVelocity::Cone {
+            direction: [0.0, 1.0, 0.0],
+            angle: 0.5,
+            speed: enigma_3d::particle::Range::new(1.5, 3.0),
+        };
+        config.gravity = Some([0.0, -2.0, 0.0]);
         Self {
             uuid: Uuid::new_v4(),
             config,
