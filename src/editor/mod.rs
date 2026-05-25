@@ -23,7 +23,9 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         .min_width(160.0)
         .resizable(true)
         .show(ctx, |ui| {
-            panels::hierarchy::draw(ui, app_state);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| panels::hierarchy::draw(ui, app_state));
         });
 
     egui::SidePanel::right("inspector")
@@ -31,12 +33,14 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         .min_width(240.0)
         .resizable(true)
         .show(ctx, |ui| {
-            panels::inspector::draw(ui, app_state);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| panels::inspector::draw(ui, app_state));
         });
 
     egui::TopBottomPanel::bottom("resource_browser")
-        .default_height(200.0)
-        .min_height(120.0)
+        .default_height(220.0)
+        .min_height(80.0)
         .resizable(true)
         .show(ctx, |ui| {
             panels::resource_browser::draw(ui, app_state);

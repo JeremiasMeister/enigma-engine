@@ -38,15 +38,19 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         }
     }
 
-    match current_tab {
-        ResourceTab::Models => list_kind(ui, app_state, ResourceKind::Model),
-        ResourceTab::Textures => list_kind(ui, app_state, ResourceKind::Texture),
-        ResourceTab::Shaders => list_kind(ui, app_state, ResourceKind::Shader),
-        ResourceTab::Audio => list_kind(ui, app_state, ResourceKind::Audio),
-        ResourceTab::Other => list_kind(ui, app_state, ResourceKind::Other),
-        ResourceTab::Materials => list_materials(ui, app_state),
-        ResourceTab::Scenes => list_scenes(ui, app_state),
-    }
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            match current_tab {
+                ResourceTab::Models => list_kind(ui, app_state, ResourceKind::Model),
+                ResourceTab::Textures => list_kind(ui, app_state, ResourceKind::Texture),
+                ResourceTab::Shaders => list_kind(ui, app_state, ResourceKind::Shader),
+                ResourceTab::Audio => list_kind(ui, app_state, ResourceKind::Audio),
+                ResourceTab::Other => list_kind(ui, app_state, ResourceKind::Other),
+                ResourceTab::Materials => list_materials(ui, app_state),
+                ResourceTab::Scenes => list_scenes(ui, app_state),
+            }
+        });
 }
 
 fn list_kind(ui: &mut Ui, app_state: &mut AppState, kind: ResourceKind) {
