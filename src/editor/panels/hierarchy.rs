@@ -114,7 +114,10 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             ui.menu_button("+ Add", |ui| {
                 if ui.button("Directional").clicked() { spawn_light = Some(LightTemplate::Directional); ui.close_menu(); }
                 if ui.button("Point").clicked() { spawn_light = Some(LightTemplate::Point); ui.close_menu(); }
-                if ui.button("Ambient").clicked() { spawn_light = Some(LightTemplate::Ambient); ui.close_menu(); }
+                if !has_ambient && ui.button("Ambient").clicked() {
+                    spawn_light = Some(LightTemplate::Ambient);
+                    ui.close_menu();
+                }
             });
             for (idx, name) in &light_rows {
                 let selected = matches!(current_selection, Selection::Light(s) if s == *idx);
@@ -127,17 +130,24 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                     }
                 });
             }
-            if has_ambient {
-                let selected = matches!(current_selection, Selection::AmbientLight);
-                ui.horizontal(|ui| {
+            // Always render the ambient slot — present if Some, "+ Add" inline if None.
+            // This avoids a one-frame delay before users see the row after spawning.
+            ui.horizontal(|ui| {
+                if has_ambient {
+                    let selected = matches!(current_selection, Selection::AmbientLight);
                     if ui.selectable_label(selected, "Ambient").clicked() {
                         new_selection = Some(Selection::AmbientLight);
                     }
-                    if ui.small_button("×").on_hover_text("Delete").clicked() {
+                    if ui.small_button("×").on_hover_text("Delete ambient light").clicked() {
                         delete_request = Some(PendingDelete::AmbientLight);
                     }
-                });
-            }
+                } else {
+                    ui.weak("Ambient (none)");
+                    if ui.small_button("+ Add").clicked() {
+                        spawn_light = Some(LightTemplate::Ambient);
+                    }
+                }
+            });
         });
 
     egui::CollapsingHeader::new("Camera")

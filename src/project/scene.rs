@@ -24,11 +24,15 @@ pub fn switch(
     let scene = project.scenes.get(target_index).ok_or(SceneError::BadIndex)?.clone();
     let path = scene_path(project, &scene);
     let text = fs::read_to_string(&path).map_err(SceneError::Io)?;
-    let serializer: AppStateSerializer = serde_json::from_str(&text).map_err(SceneError::Parse)?;
+    let trimmed = text.trim();
 
     let display = app_state.display.clone().ok_or(SceneError::NoDisplay)?;
     clear_scene(app_state);
-    app_state.inject_serializer(serializer, display, /*additive=*/false);
+
+    if !trimmed.is_empty() && trimmed != "{}" {
+        let serializer: AppStateSerializer = serde_json::from_str(&text).map_err(SceneError::Parse)?;
+        app_state.inject_serializer(serializer, display, /*additive=*/false);
+    }
     project.active_scene_index = target_index;
     Ok(())
 }
