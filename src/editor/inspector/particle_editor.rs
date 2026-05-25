@@ -21,7 +21,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
     let materials: Vec<(Uuid, String)> = app_state
         .get_state_data_value::<EditorRoot>("editor")
         .and_then(|r| r.project.as_ref())
-        .map(|p| p.materials.iter().map(|m| (m.uuid, m.name.clone())).collect())
+        .map(|p| p.materials.iter()
+            .filter(|m| !m.name.starts_with("INTERNAL::"))
+            .map(|m| (m.uuid, m.name.clone())).collect())
         .unwrap_or_default();
 
     let mut changed = false;
@@ -35,11 +37,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
         ui.label("Material");
         let current = def_clone.material
             .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-            .unwrap_or_else(|| "(none — won't render)".to_string());
+            .unwrap_or_else(|| "(built-in)".to_string());
         egui::ComboBox::from_id_source("particle_material")
             .selected_text(current)
             .show_ui(ui, |ui| {
-                if ui.selectable_label(def_clone.material.is_none(), "(none)").clicked() {
+                if ui.selectable_label(def_clone.material.is_none(), "(built-in)").clicked() {
                     def_clone.material = None;
                     changed = true;
                 }

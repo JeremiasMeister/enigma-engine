@@ -277,6 +277,8 @@ pub struct EditorState {
     pub previewed_particle: Option<(Uuid, u64)>,
     pub applied_terrain: Option<u64>,
     pub applied_particle_instances: HashMap<Uuid, u64>,
+    pub internal_particle_sprite_material: Option<Uuid>,
+    pub internal_particle_ribbon_material: Option<Uuid>,
     pub job: Option<RunningJob>,
     pub last_job: Option<JobOutcome>,
     pub project_load: Option<ProjectLoadJob>,

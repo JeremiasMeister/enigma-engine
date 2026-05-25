@@ -16,6 +16,7 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     reconcile_materials(app_state);
     apply_material_assignments(app_state);
     reconcile_skybox(app_state);
+    ensure_internal_particle_materials(app_state);
     reconcile_particle_preview(app_state);
     reconcile_particle_instances(app_state);
     reconcile_terrain(app_state);
@@ -292,6 +293,44 @@ fn apply_material_assignments(app_state: &mut AppState) {
     }
 }
 
+fn ensure_internal_particle_materials(app_state: &mut AppState) {
+    let needs_sprite = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.internal_particle_sprite_material.is_none())
+        .unwrap_or(true);
+    let needs_ribbon = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.internal_particle_ribbon_material.is_none())
+        .unwrap_or(true);
+    if !needs_sprite && !needs_ribbon { return; }
+    let Some(display) = app_state.display.clone() else { return; };
+
+    if needs_sprite {
+        let mut mat = enigma_3d::material::Material::particle_sprite(&display);
+        mat.set_name("INTERNAL::ParticleSprite");
+        let uuid = mat.uuid;
+        app_state.materials.push(mat);
+        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            r.editor.internal_particle_sprite_material = Some(uuid);
+        }
+    }
+    if needs_ribbon {
+        let mut mat = enigma_3d::material::Material::particle_ribbon(&display);
+        mat.set_name("INTERNAL::ParticleRibbon");
+        let uuid = mat.uuid;
+        app_state.materials.push(mat);
+        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            r.editor.internal_particle_ribbon_material = Some(uuid);
+        }
+    }
+}
+
+fn default_particle_material(app_state: &AppState, render: &enigma_3d::particle::RenderStyle) -> Option<uuid::Uuid> {
+    let r = app_state.get_state_data_value::<EditorRoot>("editor")?;
+    match render {
+        enigma_3d::particle::RenderStyle::Sprite { .. } => r.editor.internal_particle_sprite_material,
+        enigma_3d::particle::RenderStyle::Ribbon { .. } => r.editor.internal_particle_ribbon_material,
+    }
+}
+
 fn reconcile_particle_preview(app_state: &mut AppState) {
     use crate::editor::state::Selection;
 
@@ -330,11 +369,12 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
     }
 
     if let (Some(uuid), Some(cfg)) = (desired_uuid, desired_config) {
-        let material_uuid = app_state
+        let explicit_mat = app_state
             .get_state_data_value::<EditorRoot>("editor")
             .and_then(|r| r.project.as_ref())
             .and_then(|p| p.particle_systems.iter().find(|d| d.uuid == uuid))
             .and_then(|d| d.material);
+        let material_uuid = explicit_mat.or_else(|| default_particle_material(app_state, &cfg.render));
         match enigma_3d::particle::ParticleSystem::from_config(cfg) {
             Ok(mut sys) => {
                 sys.handle = uuid;
@@ -409,7 +449,7 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
     }
 
     // Build / rebuild instances.
-    for (inst_uuid, def_uuid, position, hash, material_uuid) in snapshot {
+    for (inst_uuid, def_uuid, position, hash, explicit_material) in snapshot {
         let prev_hash = applied.get(&inst_uuid).copied();
         if prev_hash == Some(hash) { continue; }
 
@@ -422,6 +462,7 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
 
         // Remove existing instance with this uuid if any.
         app_state.particle_systems.retain(|s| s.handle != inst_uuid);
+        let material_uuid = explicit_material.or_else(|| default_particle_material(app_state, &config.render));
 
         match enigma_3d::particle::ParticleSystem::from_config(config) {
             Ok(mut sys) => {
