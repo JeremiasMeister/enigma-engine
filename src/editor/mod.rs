@@ -449,19 +449,24 @@ fn position_hash(p: [f32; 3]) -> u64 {
 }
 
 fn reconcile_terrain(app_state: &mut AppState) {
-    let (desired, applied) = {
+    let (desired, applied, material_def_hash) = {
         let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let Some(project) = r.project.as_ref() else { return; };
         let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
-        (scene.terrain.clone(), r.editor.applied_terrain)
+        let mat_hash = scene.terrain.as_ref().and_then(|t| t.material).and_then(|u| {
+            project.materials.iter().find(|m| m.uuid == u)
+                .map(|m| crate::project::material::material_hash(m))
+        }).unwrap_or(0);
+        (scene.terrain.clone(), r.editor.applied_terrain, mat_hash)
     };
 
-    let new_hash = desired.as_ref().map(hash_terrain_def);
+    let new_hash = desired.as_ref().map(|d| hash_terrain_def(d) ^ material_def_hash);
     let stale = new_hash != applied;
     if !stale { return; }
 
     if let Some(def) = desired {
         let Some(display) = app_state.display.clone() else { return; };
+        let material_uuid = def.material;
         let mut config = enigma_3d::terrain::TerrainConfig::default();
         config.width = def.width;
         config.depth = def.depth;
@@ -489,6 +494,11 @@ fn reconcile_terrain(app_state: &mut AppState) {
 
         let mut terrain = enigma_3d::terrain::Terrain::new(&display, config);
         terrain.set_position(def.position);
+        if let Some(mat_uuid) = material_uuid {
+            if let Some(mat) = app_state.materials.iter().find(|m| m.uuid == mat_uuid) {
+                terrain.set_material(mat.clone());
+            }
+        }
         app_state.set_terrain(terrain);
         if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
             r.editor.applied_terrain = new_hash;

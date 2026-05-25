@@ -1,5 +1,6 @@
 use egui::{DragValue, Ui};
 use enigma_3d::AppState;
+use uuid::Uuid;
 
 use crate::editor::state::{EditorRoot, TerrainDef};
 
@@ -55,6 +56,36 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 changed |= ui.add(DragValue::new(&mut def.noise_amplitude).speed(0.05).prefix("amplitude ")).changed();
                 changed |= ui.add(DragValue::new(&mut def.noise_octaves).speed(1.0).prefix("octaves ")).changed();
                 changed |= ui.add(DragValue::new(&mut def.noise_persistence).speed(0.05).prefix("persistence ")).changed();
+            });
+
+            egui::CollapsingHeader::new("Material").default_open(true).show(ui, |ui| {
+                let materials: Vec<(Uuid, String)> = app_state
+                    .get_state_data_value::<EditorRoot>("editor")
+                    .and_then(|r| r.project.as_ref())
+                    .map(|p| p.materials.iter().map(|m| (m.uuid, m.name.clone())).collect())
+                    .unwrap_or_default();
+                let current = def.material
+                    .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
+                    .unwrap_or_else(|| "(vertex colors)".to_string());
+                ui.horizontal(|ui| {
+                    ui.label("Material:");
+                    egui::ComboBox::from_id_source("terrain_material")
+                        .selected_text(current)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(def.material.is_none(), "(vertex colors)").clicked() {
+                                def.material = None;
+                                changed = true;
+                            }
+                            for (uuid, name) in &materials {
+                                let selected = def.material == Some(*uuid);
+                                if ui.selectable_label(selected, name).clicked() {
+                                    def.material = Some(*uuid);
+                                    changed = true;
+                                }
+                            }
+                        });
+                });
+                ui.weak("when set, the terrain shader samples the material's albedo");
             });
 
             egui::CollapsingHeader::new("Colors").default_open(false).show(ui, |ui| {
