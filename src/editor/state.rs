@@ -316,7 +316,11 @@ mod tests {
 
     #[test]
     fn shader_choice_variants_roundtrip() {
-        for choice in [ShaderChoice::PbrLit, ShaderChoice::Unlit, ShaderChoice::Custom(Uuid::new_v4())] {
+        for choice in [
+            ShaderChoice::PbrLit,
+            ShaderChoice::Unlit,
+            ShaderChoice::Custom { vertex: Some(Uuid::new_v4()), fragment: None, geometry: None },
+        ] {
             let json = serde_json::to_string(&choice).unwrap();
             let parsed: ShaderChoice = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, choice);
