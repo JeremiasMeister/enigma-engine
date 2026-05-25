@@ -325,14 +325,26 @@ fn log_particle_state(app_state: &mut AppState) {
 }
 
 fn ensure_internal_particle_materials(app_state: &mut AppState) {
-    let needs_sprite = app_state.get_state_data_value::<EditorRoot>("editor")
-        .map(|r| r.editor.internal_particle_sprite_material.is_none())
-        .unwrap_or(true);
-    let needs_ribbon = app_state.get_state_data_value::<EditorRoot>("editor")
-        .map(|r| r.editor.internal_particle_ribbon_material.is_none())
-        .unwrap_or(true);
+    // Self-heal: if the cached uuid isn't actually present in app_state.materials
+    // (e.g. clear_scene wiped it on scene switch), treat it as missing.
+    let (needs_sprite, needs_ribbon) = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let sprite_present = r.editor.internal_particle_sprite_material
+            .map(|u| app_state.materials.iter().any(|m| m.uuid == u))
+            .unwrap_or(false);
+        let ribbon_present = r.editor.internal_particle_ribbon_material
+            .map(|u| app_state.materials.iter().any(|m| m.uuid == u))
+            .unwrap_or(false);
+        (!sprite_present, !ribbon_present)
+    };
     if !needs_sprite && !needs_ribbon { return; }
     let Some(display) = app_state.display.clone() else { return; };
+
+    // Clear stored uuid before rebuild so the new uuid is recorded.
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        if needs_sprite { r.editor.internal_particle_sprite_material = None; }
+        if needs_ribbon { r.editor.internal_particle_ribbon_material = None; }
+    }
 
     if needs_sprite {
         let mut mat = enigma_3d::material::Material::particle_sprite(&display);
@@ -686,6 +698,10 @@ fn apply_skybox_texture(
 ) {
     use enigma_3d::material::{Material, TextureType};
     use enigma_3d::object::Object;
+
+    // Drop any previously-applied INTERNAL::SkyBox materials so they don't
+    // accumulate across skybox swaps.
+    app_state.materials.retain(|m| m.name != "INTERNAL::SkyBox");
 
     let mut material = Material::unlit(display.clone(), false);
     material.set_name("INTERNAL::SkyBox");
