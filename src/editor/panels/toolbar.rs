@@ -83,6 +83,10 @@ fn scene_menu(ui: &mut Ui, app_state: &mut AppState) {
     let Some(project) = project_clone else { return; };
 
     ui.menu_button("Scene", |ui| {
+        if ui.button("Save Scene").clicked() {
+            project::start_save_scene_and_project(app_state);
+            ui.close_menu();
+        }
         if ui.button("New Scene…").clicked() {
             if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
                 root.editor.modal = Some(Modal::NewSceneName(String::new()));
