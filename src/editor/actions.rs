@@ -1,24 +1,102 @@
 use std::process::Command;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Instant;
 
 use enigma_3d::AppState;
 use enigma_3d::light::{Light, LightEmissionType};
 use enigma_3d::object::Object;
 use uuid::Uuid;
 
-use crate::editor::state::{EditorRoot, MaterialDef, ProjectState};
+use crate::editor::state::{EditorRoot, JobOutcome, MaterialDef, ProjectState, RunningJob};
 use crate::project;
 
 pub fn run_project(app_state: &mut AppState) {
+    if is_busy(app_state) { return; }
     let Some(project) = save_before_run(app_state) else { return; };
-    spawn_cargo(&project, &["run"]);
+    start_cargo(app_state, &project, "Run", vec!["run".into()]);
 }
 
 pub fn build_project(app_state: &mut AppState, release: bool) {
+    if is_busy(app_state) { return; }
     let Some(project) = save_before_run(app_state) else { return; };
-    if release {
-        spawn_cargo(&project, &["build", "--release"]);
+    let (label, args) = if release {
+        ("Release Build".to_string(), vec!["build".into(), "--release".into()])
     } else {
-        spawn_cargo(&project, &["build"]);
+        ("Debug Build".to_string(), vec!["build".into()])
+    };
+    start_cargo(app_state, &project, &label, args);
+}
+
+pub fn is_busy(app_state: &AppState) -> bool {
+    app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.job.is_some())
+        .unwrap_or(false)
+}
+
+pub fn poll_job(app_state: &mut AppState) {
+    let outcome = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(job) = r.editor.job.as_ref() else { return; };
+        match job.rx.try_recv() {
+            Ok(o) => Some(o),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(JobOutcome {
+                label: job.label.clone(),
+                success: false,
+                duration: job.started_at.elapsed(),
+                message: "job worker disconnected".to_string(),
+            }),
+        }
+    };
+    if let Some(outcome) = outcome {
+        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            r.editor.job = None;
+            r.editor.last_job = Some(outcome);
+        }
+    }
+}
+
+fn start_cargo(app_state: &mut AppState, project: &ProjectState, label: &str, args: Vec<String>) {
+    let (tx, rx) = mpsc::channel();
+    let label_owned = label.to_string();
+    let root_path = project.root_path.clone();
+    let started_at = Instant::now();
+    let thread_label = label_owned.clone();
+    thread::spawn(move || {
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        let output = Command::new("cargo")
+            .args(&args_ref)
+            .current_dir(&root_path)
+            .output();
+        let outcome = match output {
+            Ok(o) if o.status.success() => JobOutcome {
+                label: thread_label,
+                success: true,
+                duration: started_at.elapsed(),
+                message: String::from_utf8_lossy(&o.stdout).into_owned(),
+            },
+            Ok(o) => JobOutcome {
+                label: thread_label,
+                success: false,
+                duration: started_at.elapsed(),
+                message: String::from_utf8_lossy(&o.stderr).into_owned(),
+            },
+            Err(e) => JobOutcome {
+                label: thread_label,
+                success: false,
+                duration: started_at.elapsed(),
+                message: format!("could not spawn cargo: {e}"),
+            },
+        };
+        let _ = tx.send(outcome);
+    });
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.job = Some(RunningJob {
+            label: label_owned,
+            started_at,
+            rx,
+        });
     }
 }
 
@@ -63,23 +141,6 @@ fn stage_startup_scene(project: &ProjectState) -> std::io::Result<()> {
     Ok(())
 }
 
-fn spawn_cargo(project: &ProjectState, args: &[&str]) {
-    let output = Command::new("cargo")
-        .args(args)
-        .current_dir(&project.root_path)
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            println!("cargo {}: ok", args.join(" "));
-            println!("{}", String::from_utf8_lossy(&o.stdout));
-        }
-        Ok(o) => {
-            eprintln!("cargo {} failed", args.join(" "));
-            eprintln!("{}", String::from_utf8_lossy(&o.stderr));
-        }
-        Err(e) => eprintln!("could not spawn cargo: {e}"),
-    }
-}
 
 pub enum ObjectTemplate {
     Empty,

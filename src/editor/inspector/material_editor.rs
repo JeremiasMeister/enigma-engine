@@ -77,12 +77,12 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
         changed |= ui.color_edit_button_rgb(&mut def_clone.color).changed();
     });
     changed |= ui.add(DragValue::new(&mut def_clone.emissive_strength).speed(0.05).prefix("emissive ")).changed();
-    changed |= ui.add(DragValue::new(&mut def_clone.roughness_strength).speed(0.01).clamp_range(0.0..=1.0).prefix("roughness ")).changed();
-    changed |= ui.add(DragValue::new(&mut def_clone.metallic_strength).speed(0.01).clamp_range(0.0..=1.0).prefix("metallic ")).changed();
-    changed |= ui.add(DragValue::new(&mut def_clone.normal_strength).speed(0.01).clamp_range(0.0..=2.0).prefix("normal ")).changed();
+    changed |= ui.add(DragValue::new(&mut def_clone.roughness_strength).speed(0.01).prefix("roughness ")).changed();
+    changed |= ui.add(DragValue::new(&mut def_clone.metallic_strength).speed(0.01).prefix("metallic ")).changed();
+    changed |= ui.add(DragValue::new(&mut def_clone.normal_strength).speed(0.01).prefix("normal ")).changed();
     changed |= ui.checkbox(&mut def_clone.transparent, "Transparent").changed();
     if def_clone.transparent {
-        changed |= ui.add(DragValue::new(&mut def_clone.transparency_strength).speed(0.01).clamp_range(0.0..=1.0).prefix("transparency ")).changed();
+        changed |= ui.add(DragValue::new(&mut def_clone.transparency_strength).speed(0.01).prefix("transparency ")).changed();
     }
 
     if changed {

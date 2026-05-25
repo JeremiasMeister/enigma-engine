@@ -21,7 +21,7 @@ fn draw_props(ui: &mut Ui, light: &mut enigma_3d::light::Light, ambient: bool) {
         ui.color_edit_button_rgb(&mut light.color);
 
         ui.label("Intensity");
-        ui.add(DragValue::new(&mut light.intensity).speed(0.05).clamp_range(0.0..=20.0));
+        ui.add(DragValue::new(&mut light.intensity).speed(0.05));
 
         if !ambient {
             ui.checkbox(&mut light.cast_shadow, "Cast shadow");

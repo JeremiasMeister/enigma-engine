@@ -10,9 +10,19 @@ use crate::editor::state::{EditorRoot, Modal, PendingDelete};
 
 pub fn draw(ctx: &Context, app_state: &mut AppState) {
     set_style(ctx);
+    crate::editor::actions::poll_job(app_state);
     reconcile_materials(app_state);
     apply_material_assignments(app_state);
     reconcile_skybox(app_state);
+
+    // Keep repainting while a job is running so the spinner animates and
+    // the poll picks up completion promptly.
+    if app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.job.is_some())
+        .unwrap_or(false)
+    {
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         panels::toolbar::draw(ui, app_state);

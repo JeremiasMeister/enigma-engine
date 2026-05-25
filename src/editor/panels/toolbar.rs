@@ -40,8 +40,10 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         scene_menu(ui, app_state);
 
         let project_loaded = current_project_clone(app_state).is_some();
+        let busy = actions::is_busy(app_state);
+        let enabled = project_loaded && !busy;
 
-        ui.add_enabled_ui(project_loaded, |ui| {
+        ui.add_enabled_ui(enabled, |ui| {
             if ui.button("Play").clicked() {
                 actions::run_project(app_state);
             }
@@ -55,6 +57,15 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") {
+                if let Some(job) = root.editor.job.as_ref() {
+                    let elapsed = job.started_at.elapsed().as_secs_f32();
+                    ui.add(egui::Spinner::new());
+                    ui.label(format!("{} — {:.1}s", job.label, elapsed));
+                } else if let Some(last) = root.editor.last_job.as_ref() {
+                    let marker = if last.success { "✓" } else { "✗" };
+                    let dur = last.duration.as_secs_f32();
+                    ui.label(format!("{} {} ({:.1}s)", marker, last.label, dur));
+                }
                 if let Some(p) = &root.project {
                     if root.editor.dirty {
                         ui.label("•");

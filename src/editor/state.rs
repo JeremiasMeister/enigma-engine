@@ -173,6 +173,22 @@ pub struct EditorState {
     pub renaming: Option<RenameTarget>,
     pub material_cache: HashMap<Uuid, u64>,
     pub applied_skybox: Option<Uuid>,
+    pub job: Option<RunningJob>,
+    pub last_job: Option<JobOutcome>,
+}
+
+pub struct RunningJob {
+    pub label: String,
+    pub started_at: std::time::Instant,
+    pub rx: std::sync::mpsc::Receiver<JobOutcome>,
+}
+
+#[derive(Clone, Debug)]
+pub struct JobOutcome {
+    pub label: String,
+    pub success: bool,
+    pub duration: std::time::Duration,
+    pub message: String,
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]

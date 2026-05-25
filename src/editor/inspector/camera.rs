@@ -30,8 +30,8 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     });
 
     egui::CollapsingHeader::new("Camera").default_open(true).show(ui, |ui| {
-        ui.add(DragValue::new(&mut cam.fov).speed(0.5).clamp_range(1.0..=170.0).prefix("fov "));
-        ui.add(DragValue::new(&mut cam.near).speed(0.01).clamp_range(0.001..=1000.0).prefix("near "));
-        ui.add(DragValue::new(&mut cam.far).speed(1.0).clamp_range(0.1..=10000.0).prefix("far "));
+        ui.add(DragValue::new(&mut cam.fov).speed(0.5).prefix("fov "));
+        ui.add(DragValue::new(&mut cam.near).speed(0.01).prefix("near "));
+        ui.add(DragValue::new(&mut cam.far).speed(1.0).prefix("far "));
     });
 }
