@@ -1,7 +1,6 @@
-mod ui;
+mod editor;
 mod project;
 mod resources;
-mod serialization;
 
 use std::sync::Arc;
 use enigma_3d::AppState;
@@ -96,6 +95,6 @@ fn main() {
     app_state.set_camera(camera);
 
     // inject the ui into the app_state
-    app_state.inject_gui(Arc::new(ui::project_window::draw));
+    app_state.inject_gui(Arc::new(|_ctx, _state| {}));
     event_loop.run(app_state.convert_to_arc_mutex());
 }
