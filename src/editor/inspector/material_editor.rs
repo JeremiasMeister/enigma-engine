@@ -26,12 +26,21 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
         changed |= ui.text_edit_singleline(&mut def_clone.name).changed();
     });
 
+    let shaders: Vec<(Uuid, String)> = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.as_ref())
+        .map(|p| p.manifest.iter()
+            .filter(|e| e.kind == ResourceKind::Shader)
+            .map(|e| (e.uuid, e.name.clone()))
+            .collect())
+        .unwrap_or_default();
+
     ui.horizontal(|ui| {
         ui.label("Shader");
         let label = match def_clone.shader {
             ShaderChoice::PbrLit => "PBR Lit",
             ShaderChoice::Unlit => "Unlit",
-            ShaderChoice::Custom(_) => "Custom",
+            ShaderChoice::Custom { .. } => "Custom",
         };
         egui::ComboBox::from_id_source("material_shader")
             .selected_text(label)
@@ -44,8 +53,25 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
                     def_clone.shader = ShaderChoice::Unlit;
                     changed = true;
                 }
+                if ui.selectable_label(matches!(def_clone.shader, ShaderChoice::Custom { .. }), "Custom").clicked() {
+                    if !matches!(def_clone.shader, ShaderChoice::Custom { .. }) {
+                        def_clone.shader = ShaderChoice::Custom {
+                            vertex: None,
+                            fragment: None,
+                            geometry: None,
+                        };
+                        changed = true;
+                    }
+                }
             });
     });
+
+    if let ShaderChoice::Custom { vertex, fragment, geometry } = &mut def_clone.shader {
+        ui.label("Custom shader sources (defaults used if empty)");
+        changed |= shader_slot(ui, "Vertex", vertex, &shaders);
+        changed |= shader_slot(ui, "Fragment", fragment, &shaders);
+        changed |= shader_slot(ui, "Geometry", geometry, &shaders);
+    }
 
     ui.separator();
     ui.label("Texture slots");
@@ -95,6 +121,37 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
             }
         }
     }
+}
+
+fn shader_slot(
+    ui: &mut Ui,
+    label: &str,
+    slot: &mut Option<Uuid>,
+    shaders: &[(Uuid, String)],
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let current = slot
+            .and_then(|u| shaders.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
+            .unwrap_or_else(|| "(default)".into());
+        egui::ComboBox::from_id_source(format!("shader-slot-{label}"))
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(slot.is_none(), "(default)").clicked() {
+                    *slot = None;
+                    changed = true;
+                }
+                for (uuid, name) in shaders {
+                    let is = *slot == Some(*uuid);
+                    if ui.selectable_label(is, name).clicked() {
+                        *slot = Some(*uuid);
+                        changed = true;
+                    }
+                }
+            });
+    });
+    changed
 }
 
 fn texture_slot(

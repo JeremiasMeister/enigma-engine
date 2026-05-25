@@ -1,6 +1,7 @@
 use enigma_3d::AppState;
 use enigma_3d::material::Material;
 use enigma_3d::material::TextureType;
+use enigma_3d::shader::Shader;
 use glium::Display;
 use glium::glutin::surface::WindowSurface;
 use std::collections::HashMap;
@@ -19,9 +20,8 @@ pub fn realize(
     let mut mat = match &def.shader {
         ShaderChoice::PbrLit => Material::lit_pbr(display.clone(), def.transparent),
         ShaderChoice::Unlit => Material::unlit(display.clone(), def.transparent),
-        ShaderChoice::Custom(_shader_uuid) => {
-            // Custom shaders deferred — fall back to PBR for v1
-            Material::lit_pbr(display.clone(), def.transparent)
+        ShaderChoice::Custom { vertex, fragment, geometry } => {
+            build_custom(project, display.clone(), *vertex, *fragment, *geometry, def.transparent)?
         }
     };
     mat.uuid = def.uuid;
@@ -44,6 +44,37 @@ pub fn realize(
     apply_texture(&mut mat, project, def.emissive,  TextureType::Emissive)?;
 
     Ok(mat)
+}
+
+fn build_custom(
+    project: &ProjectState,
+    display: Display<WindowSurface>,
+    vertex: Option<Uuid>,
+    fragment: Option<Uuid>,
+    geometry: Option<Uuid>,
+    transparency: bool,
+) -> Result<Material, RealizeError> {
+    let vertex_src = load_shader_string(project, vertex)?
+        .unwrap_or_else(|| enigma_3d::resources::vertex_shader().to_string());
+    let fragment_src = load_shader_string(project, fragment)?
+        .unwrap_or_else(|| enigma_3d::resources::fragment_shader().to_string());
+    let geometry_src = load_shader_string(project, geometry)?;
+
+    let shader = Shader::from_strings(&vertex_src, &fragment_src, geometry_src.as_deref());
+    let mut mat = Material::new(
+        shader,
+        display,
+        None, None, None, None, None, None, None, None, None, None,
+    );
+    mat.set_transparency(transparency);
+    Ok(mat)
+}
+
+fn load_shader_string(project: &ProjectState, uuid: Option<Uuid>) -> Result<Option<String>, RealizeError> {
+    let Some(uuid) = uuid else { return Ok(None); };
+    let bytes = resource::bytes(project, uuid).map_err(|_| RealizeError::ShaderNotFound)?;
+    let text = String::from_utf8(bytes).map_err(|_| RealizeError::ShaderNotFound)?;
+    Ok(Some(text))
 }
 
 fn apply_texture(

@@ -147,7 +147,18 @@ impl MaterialDef {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub enum ShaderChoice { PbrLit, Unlit, Custom(Uuid) }
+pub enum ShaderChoice {
+    PbrLit,
+    Unlit,
+    Custom {
+        #[serde(default)]
+        vertex: Option<Uuid>,
+        #[serde(default)]
+        fragment: Option<Uuid>,
+        #[serde(default)]
+        geometry: Option<Uuid>,
+    },
+}
 
 // --- Transient editor state (never serialized) ---
 
