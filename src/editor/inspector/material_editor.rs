@@ -58,6 +58,19 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
     changed |= texture_slot(ui, "Emissive", &mut def_clone.emissive, &textures);
 
     ui.separator();
+    ui.label("UV Tiling / Offset");
+    ui.horizontal(|ui| {
+        ui.label("Tiling");
+        changed |= ui.add(DragValue::new(&mut def_clone.uv_tiling[0]).speed(0.05).prefix("u ")).changed();
+        changed |= ui.add(DragValue::new(&mut def_clone.uv_tiling[1]).speed(0.05).prefix("v ")).changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label("Offset");
+        changed |= ui.add(DragValue::new(&mut def_clone.uv_offset[0]).speed(0.01).prefix("u ")).changed();
+        changed |= ui.add(DragValue::new(&mut def_clone.uv_offset[1]).speed(0.01).prefix("v ")).changed();
+    });
+
+    ui.separator();
     ui.label("Parameters");
     ui.horizontal(|ui| {
         ui.label("Color");

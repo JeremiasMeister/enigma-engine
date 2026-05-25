@@ -31,6 +31,8 @@ pub fn realize(
     mat.set_roughness_strength(def.roughness_strength);
     mat.set_metallic_strength(def.metallic_strength);
     mat.set_normal_strength(def.normal_strength);
+    mat.set_uv_tiling(def.uv_tiling);
+    mat.set_uv_offset(def.uv_offset);
     if def.transparent {
         mat.set_transparency_strength(def.transparency_strength);
     }
@@ -73,6 +75,8 @@ pub fn material_hash(def: &MaterialDef) -> u64 {
     def.normal_strength.to_bits().hash(&mut h);
     def.transparent.hash(&mut h);
     def.transparency_strength.to_bits().hash(&mut h);
+    def.uv_tiling.iter().for_each(|f| f.to_bits().hash(&mut h));
+    def.uv_offset.iter().for_each(|f| f.to_bits().hash(&mut h));
     h.finish()
 }
 

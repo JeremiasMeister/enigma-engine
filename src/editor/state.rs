@@ -117,7 +117,14 @@ pub struct MaterialDef {
     pub normal_strength: f32,
     pub transparent: bool,
     pub transparency_strength: f32,
+    #[serde(default = "default_uv_tiling")]
+    pub uv_tiling: [f32; 2],
+    #[serde(default = "default_uv_offset")]
+    pub uv_offset: [f32; 2],
 }
+
+fn default_uv_tiling() -> [f32; 2] { [1.0, 1.0] }
+fn default_uv_offset() -> [f32; 2] { [0.0, 0.0] }
 
 impl MaterialDef {
     pub fn default_pbr(name: String) -> Self {
@@ -133,6 +140,8 @@ impl MaterialDef {
             normal_strength: 1.0,
             transparent: false,
             transparency_strength: 1.0,
+            uv_tiling: [1.0, 1.0],
+            uv_offset: [0.0, 0.0],
         }
     }
 }
