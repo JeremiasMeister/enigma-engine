@@ -49,7 +49,7 @@ src/
     mod.rs                      # new/open/save project (refactored from current project.rs)
     resource.rs                 # import, uuid generation, manifest lookup, bytes loader
     scene.rs                    # multi-scene management: switch / load / save active scene
-    material.rs                 # MaterialDef <-> enigma::Material realization & reconciliation
+    material.rs                 # MaterialDef <-> enigma_3d::Material realization & reconciliation
   resources/                    # unchanged: icon + scaffold templates for child projects
 ```
 
@@ -174,10 +174,10 @@ pub enum ResourceTab { Models, Textures, Shaders, Materials, Scenes, Audio, Othe
 
 ### Material realization
 
-`MaterialDef` (project-level data) does not stay in sync with `enigma::Material` automatically — enigma's `Material` is a GPU-bound resource that lives in `AppState.materials`. The bridge:
+`MaterialDef` (project-level data) does not stay in sync with `enigma_3d::Material` automatically — enigma's `Material` is a GPU-bound resource that lives in `AppState.materials`. The bridge:
 
-- `project::material::realize(def: &MaterialDef, project_root: &Path, display: &Display) -> enigma::Material` — constructs a fresh enigma `Material` from a definition by loading the referenced textures from disk and calling enigma's setter methods.
-- `project::material::reconcile(project: &ProjectState, app_state: &mut AppState, display: &Display)` — called whenever a `MaterialDef` is edited (or on scene load). Iterates over `project.materials`, ensures each uuid maps to a live `enigma::Material`, rebuilds those that have changed. Tracks a per-material content hash to skip unchanged entries.
+- `project::material::realize(def: &MaterialDef, project_root: &Path, display: &Display) -> enigma_3d::Material` — constructs a fresh enigma `Material` from a definition by loading the referenced textures from disk and calling enigma's setter methods.
+- `project::material::reconcile(project: &ProjectState, app_state: &mut AppState, display: &Display)` — called whenever a `MaterialDef` is edited (or on scene load). Iterates over `project.materials`, ensures each uuid maps to a live `enigma_3d::Material`, rebuilds those that have changed. Tracks a per-material content hash to skip unchanged entries.
 
 This means edits to a material in the inspector update the viewport immediately on the next frame.
 
@@ -359,7 +359,7 @@ pub fn handle_viewport_input(ctx: &egui::Context, app_state: &mut AppState, edit
     let ndc = screen_to_ndc(pos, rect);
     let camera = app_state.camera.as_ref().expect("camera");
     let ray_origin_dir = camera.ray_for_ndc(ndc);   // helper to be added in enigma-engine if not in enigma-3d
-    let mut ray = enigma::collision_world::Ray::new(
+    let mut ray = enigma_3d::collision_world::Ray::new(
         ray_origin_dir.origin,
         ray_origin_dir.direction,
         camera.far_plane(),
@@ -489,7 +489,7 @@ Shown slots by shader:
 Each thumbnail row is both a drag-drop target (accepts `DragPayload::Resource(uuid)` where `kind == Texture`) and clickable to open a texture picker modal.
 
 Edits dirty the live realized material immediately:
-- On any edit, run `project::material::realize(def, root, display)` and replace the corresponding `enigma::Material` in `AppState.materials`. Next frame renders with new look.
+- On any edit, run `project::material::realize(def, root, display)` and replace the corresponding `enigma_3d::Material` in `AppState.materials`. Next frame renders with new look.
 
 ### Creating materials
 
@@ -621,7 +621,7 @@ All errors are recoverable — no panic paths reachable through user actions.
 | Resource import | Tempdir + fake src file → `import()` → assert file copied, manifest entry present, uuid returned. |
 | Manifest roundtrip | Construct `ProjectState` with all variants → JSON → parse → assert equality. |
 | Scene save/load roundtrip | Construct `AppState` programmatically (objects + lights + camera + materials) → `to_serializer()` → JSON → `inject_serializer()` → re-serialize → assert equality. |
-| Material realization | Build a `MaterialDef` with all 5 slots filled with fake texture bytes → `realize()` → assert resulting `enigma::Material` serializer fields match. |
+| Material realization | Build a `MaterialDef` with all 5 slots filled with fake texture bytes → `realize()` → assert resulting `enigma_3d::Material` serializer fields match. |
 | Material reconcile no-op | Run `reconcile` twice in a row → second call should not rebuild any materials (verify via a counter injected for tests). |
 | Selection invariants | Switch scene that doesn't contain selected object uuid → assert selection collapses to `None`. |
 | Ray-pick math | Given a viewport rect and a camera, assert NDC produced for a known mouse pos matches expected NDC. |
