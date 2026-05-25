@@ -3,7 +3,7 @@ use enigma_3d::AppState;
 use rfd::AsyncFileDialog;
 
 use crate::editor::actions;
-use crate::editor::state::{EditorRoot, ProjectState};
+use crate::editor::state::{EditorRoot, Modal, ProjectState};
 use crate::project;
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
@@ -36,6 +36,8 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 ui.close_menu();
             }
         });
+
+        scene_menu(ui, app_state);
 
         let project_loaded = current_project_clone(app_state).is_some();
 
@@ -72,6 +74,54 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 }
             }
         });
+    });
+}
+
+fn scene_menu(ui: &mut Ui, app_state: &mut AppState) {
+    let project_clone = current_project_clone(app_state);
+    let Some(project) = project_clone else { return; };
+
+    ui.menu_button("Scene", |ui| {
+        if ui.button("New Scene…").clicked() {
+            if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                root.editor.modal = Some(Modal::NewSceneName(String::new()));
+            }
+            ui.close_menu();
+        }
+        let mut switch_to: Option<usize> = None;
+        ui.menu_button("Switch Scene", |ui| {
+            for (idx, s) in project.scenes.iter().enumerate() {
+                let active = idx == project.active_scene_index;
+                let mut label = s.name.clone();
+                if active { label.push_str(" (active)"); }
+                if ui.button(&label).clicked() {
+                    switch_to = Some(idx);
+                    ui.close_menu();
+                }
+            }
+        });
+        if let Some(idx) = switch_to {
+            if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if let Some(proj) = root.project.as_mut() {
+                    let mut proj_clone = proj.clone();
+                    if let Err(e) = crate::project::scene::switch(&mut proj_clone, app_state, idx) {
+                        eprintln!("scene switch failed: {e:?}");
+                    } else if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                        if let Some(p) = root.project.as_mut() {
+                            *p = proj_clone;
+                        }
+                    }
+                }
+            }
+        }
+        if ui.button("Set Current as Startup").clicked() {
+            if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if let Some(proj) = root.project.as_mut() {
+                    proj.startup_scene_index = proj.active_scene_index;
+                }
+            }
+            ui.close_menu();
+        }
     });
 }
 

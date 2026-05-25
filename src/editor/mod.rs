@@ -6,7 +6,7 @@ pub mod inspector;
 use egui::Context;
 use enigma_3d::AppState;
 
-use crate::editor::state::EditorRoot;
+use crate::editor::state::{EditorRoot, Modal, PendingDelete};
 
 pub fn draw(ctx: &Context, app_state: &mut AppState) {
     set_style(ctx);
@@ -45,6 +45,105 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         .show(ctx, |ui| {
             panels::viewport::draw(ui, app_state);
         });
+
+    process_modals(ctx, app_state);
+}
+
+fn process_modals(ctx: &Context, app_state: &mut AppState) {
+    let modal = match app_state.get_state_data_value::<EditorRoot>("editor") {
+        Some(r) => r.editor.modal.clone(),
+        None => return,
+    };
+    let Some(modal) = modal else { return; };
+
+    let mut close = false;
+    egui::Window::new("Dialog")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            match modal {
+                Modal::NewSceneName(mut draft) => {
+                    ui.label("Scene name:");
+                    let response = ui.text_edit_singleline(&mut draft);
+                    response.request_focus();
+                    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                        r.editor.modal = Some(Modal::NewSceneName(draft.clone()));
+                    }
+                    ui.horizontal(|ui| {
+                        let create = ui.button("Create").clicked()
+                            || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                        if create && !draft.trim().is_empty() {
+                            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                                if let Some(proj) = r.project.as_mut() {
+                                    if let Err(e) = crate::project::scene::new_scene(proj, draft.trim().to_string()) {
+                                        eprintln!("new scene failed: {e:?}");
+                                    } else {
+                                        r.editor.dirty = true;
+                                    }
+                                }
+                            }
+                            close = true;
+                        }
+                        if ui.button("Cancel").clicked() { close = true; }
+                    });
+                }
+                Modal::ConfirmDelete { label, pending } => {
+                    ui.label(format!("Delete {label}?"));
+                    ui.horizontal(|ui| {
+                        if ui.button("Delete").clicked() {
+                            apply_pending_delete(app_state, pending);
+                            close = true;
+                        }
+                        if ui.button("Cancel").clicked() { close = true; }
+                    });
+                }
+                Modal::ImportError(msg) => {
+                    ui.label(msg);
+                    if ui.button("OK").clicked() { close = true; }
+                }
+            }
+        });
+
+    if close {
+        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            r.editor.modal = None;
+        }
+    }
+}
+
+fn apply_pending_delete(app_state: &mut AppState, p: PendingDelete) {
+    match p {
+        PendingDelete::Resource(uuid) => {
+            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if let Some(project) = r.project.as_mut() {
+                    let _ = crate::project::resource::delete(project, uuid);
+                }
+            }
+        }
+        PendingDelete::Material(uuid) => {
+            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if let Some(project) = r.project.as_mut() {
+                    project.materials.retain(|m| m.uuid != uuid);
+                }
+            }
+        }
+        PendingDelete::Scene(idx) => {
+            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if let Some(project) = r.project.as_mut() {
+                    let _ = crate::project::scene::delete(project, idx);
+                }
+            }
+        }
+        PendingDelete::SceneObject(uuid) => {
+            app_state.objects.retain(|o| o.get_unique_id() != uuid);
+        }
+        PendingDelete::Light(idx) => {
+            if idx < app_state.light.len() {
+                app_state.light.remove(idx);
+            }
+        }
+    }
 }
 
 fn reconcile_materials(app_state: &mut AppState) {

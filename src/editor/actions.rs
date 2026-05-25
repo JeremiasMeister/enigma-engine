@@ -3,8 +3,10 @@ use std::process::Command;
 use enigma_3d::AppState;
 use enigma_3d::light::{Light, LightEmissionType};
 use enigma_3d::object::Object;
+use uuid::Uuid;
 
-use crate::editor::state::ProjectState;
+use crate::editor::state::{EditorRoot, ProjectState};
+use crate::project;
 
 pub fn run_project(project: &ProjectState) {
     spawn_cargo(project, &["run"]);
@@ -55,6 +57,22 @@ pub enum LightTemplate {
     Directional,
     Point,
     Ambient,
+}
+
+pub fn spawn_from_model(app_state: &mut AppState, model_uuid: Uuid) {
+    let bytes = {
+        let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(project) = root.project.as_ref() else { return; };
+        match project::resource::bytes(project, model_uuid) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("spawn_from_model: {e:?}");
+                return;
+            }
+        }
+    };
+    let obj = Object::load_from_gltf_resource(&bytes, None);
+    app_state.add_object(obj);
 }
 
 pub fn add_light(app_state: &mut AppState, kind: LightTemplate) {

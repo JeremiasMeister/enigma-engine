@@ -1,8 +1,9 @@
 use egui::Ui;
 use enigma_3d::AppState;
+use uuid::Uuid;
 
 use crate::editor::actions::{self, LightTemplate, ObjectTemplate};
-use crate::editor::state::{EditorRoot, Selection};
+use crate::editor::state::{EditorRoot, ResourceKind, Selection};
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     let project_loaded = app_state
@@ -32,7 +33,17 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
 
     let mut new_selection: Option<Selection> = None;
 
+    let model_rows: Vec<(Uuid, String)> = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.as_ref())
+        .map(|p| p.manifest.iter()
+            .filter(|e| e.kind == ResourceKind::Model)
+            .map(|e| (e.uuid, e.name.clone()))
+            .collect())
+        .unwrap_or_default();
+
     let mut spawn_object: Option<ObjectTemplate> = None;
+    let mut spawn_model: Option<Uuid> = None;
     egui::CollapsingHeader::new(format!("Objects ({})", object_rows.len()))
         .default_open(true)
         .show(ui, |ui| {
@@ -49,6 +60,18 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                     spawn_object = Some(ObjectTemplate::Sphere);
                     ui.close_menu();
                 }
+                ui.menu_button("From Model…", |ui| {
+                    if model_rows.is_empty() {
+                        ui.label("(import a model first)");
+                    } else {
+                        for (uuid, name) in &model_rows {
+                            if ui.button(name).clicked() {
+                                spawn_model = Some(*uuid);
+                                ui.close_menu();
+                            }
+                        }
+                    }
+                });
             });
             for (uuid, name) in &object_rows {
                 let selected = matches!(current_selection, Selection::SceneObject(s) if s == *uuid);
@@ -99,6 +122,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
 
     if let Some(t) = spawn_object {
         actions::add_object(app_state, t);
+    }
+    if let Some(uuid) = spawn_model {
+        actions::spawn_from_model(app_state, uuid);
     }
     if let Some(t) = spawn_light {
         actions::add_light(app_state, t);
