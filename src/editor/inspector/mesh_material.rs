@@ -17,7 +17,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
                 .map(|m| (m.uuid, m.name.clone()))
                 .collect();
             let scene_uuid = project.scenes.get(project.active_scene_index).map(|s| s.uuid);
-            let current = scene_uuid.and_then(|s| project.material_assignments.get(&(s, object_uuid)).copied());
+            let current = scene_uuid.and_then(|s| project.get_assignment(s, object_uuid));
             (mats, scene_uuid, current)
         };
 
@@ -49,12 +49,8 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
             if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
                 if let Some(project) = root.project.as_mut() {
                     match value {
-                        Some(mat_uuid) => {
-                            project.material_assignments.insert((scene_uuid, object_uuid), mat_uuid);
-                        }
-                        None => {
-                            project.material_assignments.remove(&(scene_uuid, object_uuid));
-                        }
+                        Some(mat_uuid) => project.set_assignment(scene_uuid, object_uuid, mat_uuid),
+                        None => project.clear_assignment(scene_uuid, object_uuid),
                     }
                     root.editor.dirty = true;
                 }

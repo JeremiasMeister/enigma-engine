@@ -1,9 +1,8 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde::ser::SerializeSeq;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct ProjectState {
     pub name: String,
     pub root_path: String,
@@ -12,30 +11,18 @@ pub struct ProjectState {
     pub active_scene_index: usize,
     pub startup_scene_index: usize,
     pub materials: Vec<MaterialDef>,
-    // (scene_uuid, object_uuid) -> material_uuid. Scene-level data persisted in project file
-    // because enigma_3d's ObjectSerializer doesn't carry editor material uuids.
-    // Serialized as a flat array of triples — JSON map keys must be strings, and
-    // tuple keys aren't.
-    #[serde(serialize_with = "ser_assignments", deserialize_with = "de_assignments")]
-    pub material_assignments: HashMap<(Uuid, Uuid), Uuid>,
+    // Scene-level data persisted in project file because enigma_3d's
+    // ObjectSerializer doesn't carry editor material uuids. Stored as a Vec
+    // because JSON map keys must be strings and (Uuid, Uuid) isn't one.
+    #[serde(default)]
+    pub material_assignments: Vec<MaterialAssignment>,
 }
 
-fn ser_assignments<S: Serializer>(
-    map: &HashMap<(Uuid, Uuid), Uuid>,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    let mut seq = s.serialize_seq(Some(map.len()))?;
-    for ((scene, object), material) in map {
-        seq.serialize_element(&(scene, object, material))?;
-    }
-    seq.end()
-}
-
-fn de_assignments<'de, D: Deserializer<'de>>(
-    d: D,
-) -> Result<HashMap<(Uuid, Uuid), Uuid>, D::Error> {
-    let entries: Vec<(Uuid, Uuid, Uuid)> = Deserialize::deserialize(d)?;
-    Ok(entries.into_iter().map(|(s, o, m)| ((s, o), m)).collect())
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct MaterialAssignment {
+    pub scene: Uuid,
+    pub object: Uuid,
+    pub material: Uuid,
 }
 
 impl ProjectState {
@@ -48,8 +35,35 @@ impl ProjectState {
             active_scene_index: 0,
             startup_scene_index: 0,
             materials: Vec::new(),
-            material_assignments: HashMap::new(),
+            material_assignments: Vec::new(),
         }
+    }
+
+    pub fn get_assignment(&self, scene: Uuid, object: Uuid) -> Option<Uuid> {
+        self.material_assignments.iter()
+            .find(|a| a.scene == scene && a.object == object)
+            .map(|a| a.material)
+    }
+
+    pub fn set_assignment(&mut self, scene: Uuid, object: Uuid, material: Uuid) {
+        if let Some(a) = self.material_assignments.iter_mut()
+            .find(|a| a.scene == scene && a.object == object)
+        {
+            a.material = material;
+        } else {
+            self.material_assignments.push(MaterialAssignment { scene, object, material });
+        }
+    }
+
+    pub fn clear_assignment(&mut self, scene: Uuid, object: Uuid) {
+        self.material_assignments.retain(|a| !(a.scene == scene && a.object == object));
+    }
+
+    pub fn assignments_for_scene(&self, scene: Uuid) -> HashMap<Uuid, Uuid> {
+        self.material_assignments.iter()
+            .filter(|a| a.scene == scene)
+            .map(|a| (a.object, a.material))
+            .collect()
     }
 }
 
@@ -223,7 +237,7 @@ mod tests {
         let mat_uuid = mat.uuid;
         p.materials.push(mat);
         let object_uuid = Uuid::new_v4();
-        p.material_assignments.insert((scene_uuid, object_uuid), mat_uuid);
+        p.set_assignment(scene_uuid, object_uuid, mat_uuid);
 
         let json = serde_json::to_string_pretty(&p).unwrap();
         let parsed: ProjectState = serde_json::from_str(&json).unwrap();
@@ -231,7 +245,7 @@ mod tests {
         assert_eq!(parsed.manifest, p.manifest);
         assert_eq!(parsed.scenes, p.scenes);
         assert_eq!(parsed.materials, p.materials);
-        assert_eq!(parsed.material_assignments.get(&(scene_uuid, object_uuid)).copied(), Some(mat_uuid));
+        assert_eq!(parsed.get_assignment(scene_uuid, object_uuid), Some(mat_uuid));
     }
 
     #[test]

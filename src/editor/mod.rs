@@ -148,17 +148,17 @@ fn apply_pending_delete(app_state: &mut AppState, p: PendingDelete) {
 }
 
 fn apply_material_assignments(app_state: &mut AppState) {
-    let (scene_uuid, assignments, default_mat) = {
+    let (assignments, default_mat) = {
         let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let Some(project) = root.project.as_ref() else { return; };
         let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
         let default_mat = project.materials.first().map(|m| m.uuid);
-        (scene.uuid, project.material_assignments.clone(), default_mat)
+        (project.assignments_for_scene(scene.uuid), default_mat)
     };
 
     for obj in app_state.objects.iter_mut() {
         let obj_uuid = obj.get_unique_id();
-        let target = assignments.get(&(scene_uuid, obj_uuid)).copied().or(default_mat);
+        let target = assignments.get(&obj_uuid).copied().or(default_mat);
         let Some(mat_uuid) = target else { continue; };
         let mats = obj.get_materials_mut();
         if mats.is_empty() {
