@@ -86,7 +86,9 @@ pub fn reconcile(
     };
 
     let live_uuids: Vec<Uuid> = project.materials.iter().map(|m| m.uuid).collect();
-    app_state.materials.retain(|m| live_uuids.contains(&m.uuid));
+    // Materials whose names start with "INTERNAL::" are framework-owned (e.g. skybox)
+    // and are not part of the project's material list.
+    app_state.materials.retain(|m| live_uuids.contains(&m.uuid) || m.name.starts_with("INTERNAL::"));
     cache.retain(|uuid, _| live_uuids.contains(uuid));
 
     for def in &project.materials {
