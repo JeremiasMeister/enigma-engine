@@ -12,6 +12,45 @@
 
 ---
 
+## Progress
+
+- [x] Task 1: scaffold (commit `8f34672`)
+- [x] Task 2: data model + 3 tests (commit `5665ec1`)
+- [x] Task 3: project lifecycle refactor (commit `6868693`)
+- [x] Task 4: resource pipeline + 5 tests (commit `e4f2fae`)
+- [x] Task 5: scene management + 5 tests (commit `84433ff`)
+- [x] Task 6: material realization + 3 tests (commit `97eb85f`)
+- [ ] Task 7 onwards: UI work
+
+**Total test count after Task 6:** 16/16 passing. Verify with `cargo test --bin enigma-engine`.
+
+**Implementation deviations from the original plan** (carry these forward):
+
+1. **Task 5 — `scene::switch` signature.** The plan specified `switch(project, app_state, display, target_index)`. The implementer changed it to `switch(project, app_state, target_index)` and pulls the display from `app_state.display.clone()` internally. A new `SceneError::NoDisplay` variant covers the `None` case. Cleaner — callers don't need to thread the display through. **Tasks 17/20 that the plan describes as taking a `Display` parameter should follow the same pattern: get it from `app_state.display`.**
+
+2. **Task 6 — added `glium = "0.33.0"` as a direct dep.** Required so `enigma-engine` can name `Display<WindowSurface>` in function signatures. Version matches enigma-3d's pin. The plan's later tasks that use `Display` in signatures can rely on this — no further Cargo.toml changes needed for glium.
+
+**Verified enigma_3d field visibility (relevant for upcoming tasks):**
+
+- `AppState.objects: Vec<Object>` — pub
+- `AppState.light: Vec<Light>` — pub
+- `AppState.materials: Vec<Material>` — pub
+- `AppState.display: Option<Display<WindowSurface>>` — pub
+- `AppState.camera: Option<Camera>` — pub
+- `Object` and `Light` field visibility: not yet verified — Tasks 9/12/14 should grep before assuming.
+
+---
+
+## Next session entry point
+
+1. Read this file (you're doing that now).
+2. Read the spec: `docs/superpowers/specs/2026-05-25-scene-authoring-core-design.md`.
+3. Verify state: `cargo test --bin enigma-engine` should report 16 passing tests.
+4. Start with Task 7. Dispatch subagent via subagent-driven-development skill.
+5. The user is `Jere`, project owner. He has given full authority on architecture and execution. Continue subagent-driven approach; he doesn't want plan re-approval between tasks.
+
+---
+
 ## Task ordering rationale
 
 Tasks 1–6 land the pure-data foundation (no UI) with full TDD coverage. Tasks 7–11 build the docked UI shell on top. Tasks 12–17 fill the per-section inspector and material editor. Tasks 18–22 finish drag-drop, ray-pick, and modal flows. Task 23 is a manual smoke-test pass against the spec's acceptance criteria.
