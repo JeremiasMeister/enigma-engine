@@ -189,6 +189,19 @@ pub struct EditorState {
     pub job: Option<RunningJob>,
     pub last_job: Option<JobOutcome>,
     pub project_load: Option<ProjectLoadJob>,
+    pub save_job: Option<SaveJob>,
+}
+
+pub struct SaveJob {
+    pub label: String,
+    pub started_at: std::time::Instant,
+    pub rx: std::sync::mpsc::Receiver<SaveMessage>,
+    pub lines: Vec<String>,
+}
+
+pub enum SaveMessage {
+    Status(String),
+    Done(Result<(), String>),
 }
 
 pub struct ProjectLoadJob {

@@ -11,7 +11,8 @@ use enigma_3d::{AppState, AppStateSerializer};
 use uuid::Uuid;
 
 use crate::editor::state::{
-    EditorRoot, ProjectLoadJob, ProjectLoadMessage, ProjectLoadPayload, ProjectState, SceneRef,
+    EditorRoot, ProjectLoadJob, ProjectLoadMessage, ProjectLoadPayload, ProjectState, SaveJob,
+    SaveMessage, SceneRef,
 };
 
 const PROJECT_FILE: &str = "enigma_project.json";
@@ -230,6 +231,141 @@ fn apply_load_payload(app_state: &mut AppState, payload: ProjectLoadPayload) {
     let Some(display) = app_state.display.clone() else { return; };
     clear_scene(app_state);
     app_state.inject_serializer(serializer, display, false);
+}
+
+pub fn start_save_scene_and_project(app_state: &mut AppState) {
+    let Some(project) = app_state.get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.clone()) else { return; };
+    let Some(scene) = project.scenes.get(project.active_scene_index).cloned() else { return; };
+
+    // to_serializer must run on the main thread (touches AppState).
+    let serializer = app_state.to_serializer();
+
+    let (tx, rx) = mpsc::channel();
+    let started_at = Instant::now();
+    let scene_path = Path::new(&project.root_path).join("src/resources").join(&scene.relative_path);
+    let project_path = Path::new(&project.root_path).join(PROJECT_FILE);
+    let project_clone = project.clone();
+    let scene_name = scene.name.clone();
+
+    thread::spawn(move || {
+        let _ = tx.send(SaveMessage::Status(format!("serializing scene '{scene_name}'")));
+        let text = match serde_json::to_string_pretty(&serializer) {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = tx.send(SaveMessage::Done(Err(format!("scene serialize: {e}"))));
+                return;
+            }
+        };
+        let _ = tx.send(SaveMessage::Status(format!("writing scene ({} bytes)", text.len())));
+        if let Err(e) = fs::write(&scene_path, &text) {
+            let _ = tx.send(SaveMessage::Done(Err(format!("scene write: {e}"))));
+            return;
+        }
+
+        let _ = tx.send(SaveMessage::Status("serializing project file".into()));
+        let project_text = match serde_json::to_string_pretty(&project_clone) {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = tx.send(SaveMessage::Done(Err(format!("project serialize: {e}"))));
+                return;
+            }
+        };
+        let _ = tx.send(SaveMessage::Status(format!("writing project ({} bytes)", project_text.len())));
+        if let Err(e) = fs::write(&project_path, &project_text) {
+            let _ = tx.send(SaveMessage::Done(Err(format!("project write: {e}"))));
+            return;
+        }
+
+        let _ = tx.send(SaveMessage::Done(Ok(())));
+    });
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.save_job = Some(SaveJob {
+            label: "Saving".into(),
+            started_at,
+            rx,
+            lines: Vec::new(),
+        });
+    }
+}
+
+pub fn start_save_project_only(app_state: &mut AppState) {
+    let Some(project) = app_state.get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.clone()) else { return; };
+
+    let (tx, rx) = mpsc::channel();
+    let started_at = Instant::now();
+    let project_path = Path::new(&project.root_path).join(PROJECT_FILE);
+
+    thread::spawn(move || {
+        let _ = tx.send(SaveMessage::Status("serializing project file".into()));
+        let project_text = match serde_json::to_string_pretty(&project) {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = tx.send(SaveMessage::Done(Err(format!("project serialize: {e}"))));
+                return;
+            }
+        };
+        let _ = tx.send(SaveMessage::Status(format!("writing project ({} bytes)", project_text.len())));
+        if let Err(e) = fs::write(&project_path, &project_text) {
+            let _ = tx.send(SaveMessage::Done(Err(format!("project write: {e}"))));
+            return;
+        }
+        let _ = tx.send(SaveMessage::Done(Ok(())));
+    });
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.save_job = Some(SaveJob {
+            label: "Saving Project".into(),
+            started_at,
+            rx,
+            lines: Vec::new(),
+        });
+    }
+}
+
+pub fn poll_save_job(app_state: &mut AppState) {
+    let mut completion: Option<Result<(), String>> = None;
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        if let Some(job) = r.editor.save_job.as_mut() {
+            loop {
+                match job.rx.try_recv() {
+                    Ok(SaveMessage::Status(s)) => {
+                        job.lines.push(s);
+                        if job.lines.len() > 200 {
+                            let overflow = job.lines.len() - 200;
+                            job.lines.drain(0..overflow);
+                        }
+                    }
+                    Ok(SaveMessage::Done(res)) => {
+                        completion = Some(res);
+                        break;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        completion = Some(Err("save worker disconnected".into()));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let Some(res) = completion else { return; };
+
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        match res {
+            Ok(()) => {
+                r.editor.dirty = false;
+            }
+            Err(e) => {
+                eprintln!("save failed: {e}");
+            }
+        }
+        r.editor.save_job = None;
+    }
 }
 
 pub fn try_save_project(app_state: &mut AppState) -> Result<(), ProjectError> {

@@ -24,13 +24,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 ui.close_menu();
             }
             if ui.button("Save Project").clicked() {
-                if let Err(e) = project::try_save_project(app_state) {
-                    eprintln!("save project failed: {e}");
-                }
+                project::start_save_project_only(app_state);
                 ui.close_menu();
             }
             if ui.button("Save Scene").clicked() {
-                save_scene(app_state);
+                project::start_save_scene_and_project(app_state);
                 ui.close_menu();
             }
         });
@@ -133,23 +131,6 @@ fn current_project_clone(app_state: &mut AppState) -> Option<ProjectState> {
         .and_then(|r| r.project.clone())
 }
 
-fn save_scene(app_state: &mut AppState) {
-    let Some(p) = current_project_clone(app_state) else { return; };
-    if let Err(e) = crate::project::scene::save_active(&p, app_state) {
-        eprintln!("save scene failed: {e:?}");
-        return;
-    }
-    if let Err(e) = crate::project::try_save_project(app_state) {
-        eprintln!("save project (after scene) failed: {e}");
-        return;
-    }
-    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
-        r.editor.dirty = false;
-    }
-    if let Some(scene) = p.scenes.get(p.active_scene_index) {
-        println!("saved scene: {}", scene.name);
-    }
-}
 
 fn pick_folder() -> Option<String> {
     FileDialog::new()
