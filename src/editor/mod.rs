@@ -20,7 +20,6 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     reconcile_particle_preview(app_state);
     reconcile_particle_instances(app_state);
     reconcile_terrain(app_state);
-    log_particle_state(app_state);
 
     // Keep repainting while a job is running so the spinner animates and
     // the poll picks up completion promptly.
@@ -294,36 +293,6 @@ fn apply_material_assignments(app_state: &mut AppState) {
     }
 }
 
-fn log_particle_state(app_state: &mut AppState) {
-    let should_log = {
-        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
-        let now = std::time::Instant::now();
-        let due = r.editor.last_particle_log
-            .map(|t| now.duration_since(t).as_secs_f32() >= 1.0)
-            .unwrap_or(true);
-        due
-    };
-    if !should_log { return; }
-
-    let mat_count = app_state.materials.len();
-    let internal_present: Vec<String> = app_state.materials.iter()
-        .filter(|m| m.name.starts_with("INTERNAL::"))
-        .map(|m| format!("{}({:.8})", m.name, m.uuid))
-        .collect();
-    let lines: Vec<String> = app_state.particle_systems.iter().map(|s| {
-        format!("  sys handle={} name={:?} live={} material_id={:?} pos={:?}",
-            s.handle, s.config.name, s.live_count(), s.material_id, s.transform[3])
-    }).collect();
-    eprintln!("[particle-debug] tick: app_state.materials={mat_count} internal=[{}] systems={}\n{}",
-        internal_present.join(", "),
-        app_state.particle_systems.len(),
-        lines.join("\n"));
-
-    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
-        r.editor.last_particle_log = Some(std::time::Instant::now());
-    }
-}
-
 fn ensure_internal_particle_materials(app_state: &mut AppState) {
     // Self-heal: if the cached uuid isn't actually present in app_state.materials
     // (e.g. clear_scene wiped it on scene switch), treat it as missing.
@@ -354,7 +323,6 @@ fn ensure_internal_particle_materials(app_state: &mut AppState) {
         if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
             r.editor.internal_particle_sprite_material = Some(uuid);
         }
-        eprintln!("[particle-debug] created INTERNAL::ParticleSprite material uuid={uuid}");
     }
     if needs_ribbon {
         let mut mat = enigma_3d::material::Material::particle_ribbon(&display);
@@ -364,7 +332,6 @@ fn ensure_internal_particle_materials(app_state: &mut AppState) {
         if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
             r.editor.internal_particle_ribbon_material = Some(uuid);
         }
-        eprintln!("[particle-debug] created INTERNAL::ParticleRibbon material uuid={uuid}");
     }
 }
 
@@ -432,25 +399,17 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
     }
 
     if let (Some(uuid), Some(cfg), Some(hash)) = (desired_uuid, desired_config, new_hash) {
-        let cfg_name = cfg.name.clone();
-        let cfg_rate = cfg.emission_rate;
-        let cfg_max = cfg.max_particles;
         match enigma_3d::particle::ParticleSystem::from_config(cfg) {
             Ok(mut sys) => {
                 sys.handle = uuid;
                 sys.material_id = effective_material;
-                let mat_status = match effective_material {
-                    Some(m) => format!("material_id={m}"),
-                    None => "material_id=NONE".to_string(),
-                };
-                eprintln!("[particle-debug] preview build def={uuid} name={cfg_name:?} rate={cfg_rate} max={cfg_max} {mat_status}");
                 app_state.particle_systems.push(sys);
                 if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
                     r.editor.previewed_particle = Some((uuid, hash));
                 }
             }
             Err(e) => {
-                eprintln!("[particle-debug] preview config invalid: {e:?}");
+                eprintln!("particle config invalid: {e:?}");
                 if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
                     r.editor.previewed_particle = None;
                 }
@@ -534,11 +493,6 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
         // Remove existing instance with this uuid if any.
         app_state.particle_systems.retain(|s| s.handle != inst_uuid);
 
-        let mat_status = match effective_material {
-            Some(m) => format!("material_id={m}"),
-            None => "material_id=NONE".to_string(),
-        };
-        eprintln!("[particle-debug] instance build inst={inst_uuid} def={def_uuid} pos={position:?} {mat_status}");
         match enigma_3d::particle::ParticleSystem::from_config(config) {
             Ok(mut sys) => {
                 sys.handle = inst_uuid;

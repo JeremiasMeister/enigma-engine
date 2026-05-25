@@ -285,7 +285,6 @@ pub struct EditorState {
     pub applied_particle_instances: HashMap<Uuid, u64>,
     pub internal_particle_sprite_material: Option<Uuid>,
     pub internal_particle_ribbon_material: Option<Uuid>,
-    pub last_particle_log: Option<std::time::Instant>,
     pub job: Option<RunningJob>,
     pub last_job: Option<JobOutcome>,
     pub project_load: Option<ProjectLoadJob>,
