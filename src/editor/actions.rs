@@ -1,4 +1,5 @@
-use std::process::Command;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
@@ -8,7 +9,7 @@ use enigma_3d::light::{Light, LightEmissionType};
 use enigma_3d::object::Object;
 use uuid::Uuid;
 
-use crate::editor::state::{EditorRoot, JobOutcome, MaterialDef, ProjectState, RunningJob};
+use crate::editor::state::{EditorRoot, JobMessage, JobOutcome, MaterialDef, ProjectState, RunningJob};
 use crate::project;
 
 pub fn run_project(app_state: &mut AppState) {
@@ -35,25 +36,41 @@ pub fn is_busy(app_state: &AppState) -> bool {
 }
 
 pub fn poll_job(app_state: &mut AppState) {
-    let outcome = {
-        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
-        let Some(job) = r.editor.job.as_ref() else { return; };
+    let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") else { return; };
+    let Some(job) = r.editor.job.as_mut() else { return; };
+    let mut outcome: Option<JobOutcome> = None;
+    let mut disconnected = false;
+    loop {
         match job.rx.try_recv() {
-            Ok(o) => Some(o),
-            Err(mpsc::TryRecvError::Empty) => None,
-            Err(mpsc::TryRecvError::Disconnected) => Some(JobOutcome {
-                label: job.label.clone(),
-                success: false,
-                duration: job.started_at.elapsed(),
-                message: "job worker disconnected".to_string(),
-            }),
+            Ok(JobMessage::Line(s)) => {
+                job.lines.push(s);
+                if job.lines.len() > 500 {
+                    let overflow = job.lines.len() - 500;
+                    job.lines.drain(0..overflow);
+                }
+            }
+            Ok(JobMessage::Done(o)) => {
+                outcome = Some(o);
+                break;
+            }
+            Err(mpsc::TryRecvError::Empty) => break,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                disconnected = true;
+                break;
+            }
         }
-    };
+    }
+    if disconnected && outcome.is_none() {
+        outcome = Some(JobOutcome {
+            label: job.label.clone(),
+            success: false,
+            duration: job.started_at.elapsed(),
+            message: "job worker disconnected".to_string(),
+        });
+    }
     if let Some(outcome) = outcome {
-        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
-            r.editor.job = None;
-            r.editor.last_job = Some(outcome);
-        }
+        r.editor.job = None;
+        r.editor.last_job = Some(outcome);
     }
 }
 
@@ -65,37 +82,68 @@ fn start_cargo(app_state: &mut AppState, project: &ProjectState, label: &str, ar
     let thread_label = label_owned.clone();
     thread::spawn(move || {
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        let output = Command::new("cargo")
+        let child = Command::new("cargo")
             .args(&args_ref)
             .current_dir(&root_path)
-            .output();
-        let outcome = match output {
-            Ok(o) if o.status.success() => JobOutcome {
+            .env("CARGO_TERM_COLOR", "never")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+
+        let mut child = match child {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = tx.send(JobMessage::Done(JobOutcome {
+                    label: thread_label,
+                    success: false,
+                    duration: started_at.elapsed(),
+                    message: format!("could not spawn cargo: {e}"),
+                }));
+                return;
+            }
+        };
+
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let tx_out = tx.clone();
+        let tx_err = tx.clone();
+        let out_thread = stdout.map(|s| thread::spawn(move || {
+            for line in BufReader::new(s).lines().flatten() {
+                if tx_out.send(JobMessage::Line(line)).is_err() { break; }
+            }
+        }));
+        let err_thread = stderr.map(|s| thread::spawn(move || {
+            for line in BufReader::new(s).lines().flatten() {
+                if tx_err.send(JobMessage::Line(line)).is_err() { break; }
+            }
+        }));
+
+        let status = child.wait();
+        if let Some(t) = out_thread { let _ = t.join(); }
+        if let Some(t) = err_thread { let _ = t.join(); }
+
+        let outcome = match status {
+            Ok(s) => JobOutcome {
                 label: thread_label,
-                success: true,
+                success: s.success(),
                 duration: started_at.elapsed(),
-                message: String::from_utf8_lossy(&o.stdout).into_owned(),
-            },
-            Ok(o) => JobOutcome {
-                label: thread_label,
-                success: false,
-                duration: started_at.elapsed(),
-                message: String::from_utf8_lossy(&o.stderr).into_owned(),
+                message: if s.success() { "ok".into() } else { format!("exit {:?}", s.code()) },
             },
             Err(e) => JobOutcome {
                 label: thread_label,
                 success: false,
                 duration: started_at.elapsed(),
-                message: format!("could not spawn cargo: {e}"),
+                message: format!("wait error: {e}"),
             },
         };
-        let _ = tx.send(outcome);
+        let _ = tx.send(JobMessage::Done(outcome));
     });
     if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         r.editor.job = Some(RunningJob {
             label: label_owned,
             started_at,
             rx,
+            lines: Vec::new(),
         });
     }
 }

@@ -63,6 +63,44 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         });
 
     process_modals(ctx, app_state);
+    draw_job_overlay(ctx, app_state);
+}
+
+fn draw_job_overlay(ctx: &Context, app_state: &mut AppState) {
+    let (label, elapsed, lines) = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(job) = r.editor.job.as_ref() else { return; };
+        (job.label.clone(), job.started_at.elapsed(), job.lines.clone())
+    };
+
+    egui::Window::new("cargo")
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .collapsible(false)
+        .resizable(true)
+        .default_width(560.0)
+        .default_height(360.0)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new().size(20.0));
+                ui.heading(format!("{label}…"));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.monospace(format!("{:.1}s", elapsed.as_secs_f32()));
+                });
+            });
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .stick_to_bottom(true)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if lines.is_empty() {
+                        ui.weak("(waiting for cargo output…)");
+                    } else {
+                        for line in &lines {
+                            ui.monospace(line);
+                        }
+                    }
+                });
+        });
 }
 
 fn process_modals(ctx: &Context, app_state: &mut AppState) {

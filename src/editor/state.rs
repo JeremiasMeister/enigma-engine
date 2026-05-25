@@ -180,7 +180,13 @@ pub struct EditorState {
 pub struct RunningJob {
     pub label: String,
     pub started_at: std::time::Instant,
-    pub rx: std::sync::mpsc::Receiver<JobOutcome>,
+    pub rx: std::sync::mpsc::Receiver<JobMessage>,
+    pub lines: Vec<String>,
+}
+
+pub enum JobMessage {
+    Line(String),
+    Done(JobOutcome),
 }
 
 #[derive(Clone, Debug)]
