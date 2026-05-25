@@ -73,5 +73,45 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
                 app_state.objects[obj_idx].stop_animation();
             }
         });
+
+        // --- Loop checkbox ---
+        let mut looping = current_looping;
+        let loop_resp = ui.add_enabled(has_current, egui::Checkbox::new(&mut looping, "Loop"));
+        if loop_resp.changed() {
+            if let Some(state) = app_state.objects[obj_idx].get_current_animation_mut().as_mut() {
+                state.looping = looping;
+            }
+        }
+
+        // --- Time scrubber ---
+        // Compute duration from the active clip (default 0 if not found / no current animation).
+        let (mut time_value, duration, clip_name_for_readout): (f32, f32, Option<String>) = {
+            let obj = &app_state.objects[obj_idx];
+            match obj.get_current_animation().as_ref() {
+                Some(state) => {
+                    let dur = obj.get_animations()
+                        .get(&state.name)
+                        .map(|a| a.duration)
+                        .unwrap_or(0.0);
+                    (state.time, dur, Some(state.name.clone()))
+                }
+                None => (0.0, 0.0, None),
+            }
+        };
+
+        let scrub_resp = ui.add_enabled(
+            has_current && duration > 0.0,
+            egui::Slider::new(&mut time_value, 0.0..=duration.max(f32::EPSILON)).text("Time"),
+        );
+        if scrub_resp.changed() {
+            if let Some(state) = app_state.objects[obj_idx].get_current_animation_mut().as_mut() {
+                state.time = time_value;
+            }
+        }
+
+        // --- Read-out ---
+        if let Some(name) = clip_name_for_readout {
+            ui.label(format!("{:.2} / {:.2}s   {}", time_value, duration, name));
+        }
     });
 }
