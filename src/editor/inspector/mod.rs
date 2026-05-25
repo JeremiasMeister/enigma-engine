@@ -5,3 +5,4 @@ pub mod camera;
 pub mod material_editor;
 pub mod resource_meta;
 pub mod scene_settings;
+pub mod particle_editor;

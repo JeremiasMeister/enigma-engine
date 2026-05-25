@@ -1,3 +1,4 @@
+use enigma_3d::particle::ParticleSystemConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -18,6 +19,24 @@ pub struct ProjectState {
     pub material_assignments: Vec<MaterialAssignment>,
     #[serde(default)]
     pub skybox: Option<Uuid>,
+    #[serde(default)]
+    pub particle_systems: Vec<ParticleSystemDef>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ParticleSystemDef {
+    pub uuid: Uuid,
+    pub config: ParticleSystemConfig,
+}
+
+impl ParticleSystemDef {
+    pub fn new_default(name: String) -> Self {
+        let config = enigma_3d::particle::ParticleSystem::new(&name).config;
+        Self {
+            uuid: Uuid::new_v4(),
+            config,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -41,6 +60,7 @@ impl ProjectState {
             materials: Vec::new(),
             material_assignments: Vec::new(),
             skybox: None,
+            particle_systems: Vec::new(),
         }
     }
 
@@ -186,6 +206,7 @@ pub struct EditorState {
     pub renaming: Option<RenameTarget>,
     pub material_cache: HashMap<Uuid, u64>,
     pub applied_skybox: Option<Uuid>,
+    pub previewed_particle: Option<(Uuid, u64)>,
     pub job: Option<RunningJob>,
     pub last_job: Option<JobOutcome>,
     pub project_load: Option<ProjectLoadJob>,
@@ -250,6 +271,7 @@ pub enum Selection {
     Camera,
     Material(Uuid),
     Resource(Uuid),
+    Particle(Uuid),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -273,6 +295,7 @@ pub enum PendingDelete {
     SceneObject(Uuid),
     Light(usize),
     AmbientLight,
+    Particle(Uuid),
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Debug)]
@@ -281,6 +304,7 @@ pub enum ResourceTab {
     Textures,
     Shaders,
     Materials,
+    Particles,
     Scenes,
     Audio,
     Other,
@@ -293,6 +317,7 @@ pub enum RenameTarget {
     Scene { index: usize, draft: String },
     SceneObject { uuid: Uuid, draft: String },
     Light { index: usize, draft: String },
+    Particle { uuid: Uuid, draft: String },
 }
 
 #[cfg(test)]

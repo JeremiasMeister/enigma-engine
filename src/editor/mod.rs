@@ -16,6 +16,7 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     reconcile_materials(app_state);
     apply_material_assignments(app_state);
     reconcile_skybox(app_state);
+    reconcile_particle_preview(app_state);
 
     // Keep repainting while a job is running so the spinner animates and
     // the poll picks up completion promptly.
@@ -208,6 +209,14 @@ fn apply_pending_delete(app_state: &mut AppState, p: PendingDelete) {
         PendingDelete::AmbientLight => {
             app_state.ambient_light = None;
         }
+        PendingDelete::Particle(uuid) => {
+            if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if let Some(project) = r.project.as_mut() {
+                    project.particle_systems.retain(|p| p.uuid != uuid);
+                }
+            }
+            app_state.particle_systems.retain(|s| s.handle != uuid);
+        }
     }
     if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         r.editor.selection = crate::editor::state::Selection::None;
@@ -264,6 +273,81 @@ fn apply_material_assignments(app_state: &mut AppState) {
             shape.material_index = i;
         }
     }
+}
+
+fn reconcile_particle_preview(app_state: &mut AppState) {
+    use crate::editor::state::Selection;
+
+    let (desired_uuid, desired_config) = {
+        let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(project) = r.project.as_ref() else { return; };
+        match &r.editor.selection {
+            Selection::Particle(u) => {
+                let def = project.particle_systems.iter().find(|p| p.uuid == *u);
+                match def {
+                    Some(d) => (Some(*u), Some(d.config.clone())),
+                    None => (None, None),
+                }
+            }
+            _ => (None, None),
+        }
+    };
+
+    let applied = app_state
+        .get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.editor.previewed_particle);
+
+    let new_hash = desired_config.as_ref().map(hash_particle_config);
+    let stale = match (desired_uuid, applied, new_hash) {
+        (Some(u), Some((au, ah)), Some(h)) => u != au || ah != h,
+        (Some(_), None, _) => true,
+        (None, Some(_), _) => true,
+        _ => false,
+    };
+
+    if !stale { return; }
+
+    // Remove any previously previewed particle instance.
+    if let Some((au, _)) = applied {
+        app_state.particle_systems.retain(|s| s.handle != au);
+    }
+
+    if let (Some(uuid), Some(cfg)) = (desired_uuid, desired_config) {
+        match enigma_3d::particle::ParticleSystem::from_config(cfg) {
+            Ok(mut sys) => {
+                sys.handle = uuid;
+                app_state.particle_systems.push(sys);
+                if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                    let h = r.project.as_ref()
+                        .and_then(|p| p.particle_systems.iter().find(|d| d.uuid == uuid))
+                        .map(|d| hash_particle_config(&d.config))
+                        .unwrap_or(0);
+                    r.editor.previewed_particle = Some((uuid, h));
+                }
+            }
+            Err(e) => {
+                eprintln!("particle config invalid: {e:?}");
+                if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                    r.editor.previewed_particle = None;
+                }
+            }
+        }
+    } else {
+        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            r.editor.previewed_particle = None;
+        }
+    }
+}
+
+fn hash_particle_config(cfg: &enigma_3d::particle::ParticleSystemConfig) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    // ParticleSystemConfig isn't Hash, so hash a serialized form.
+    if let Ok(json) = serde_json::to_string(cfg) {
+        json.hash(&mut h);
+    }
+    h.finish()
 }
 
 fn reconcile_skybox(app_state: &mut AppState) {

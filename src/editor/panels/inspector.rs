@@ -39,5 +39,8 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         Selection::Resource(uuid) => {
             inspector::resource_meta::draw(ui, app_state, uuid);
         }
+        Selection::Particle(uuid) => {
+            inspector::particle_editor::draw(ui, app_state, uuid);
+        }
     }
 }

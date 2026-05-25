@@ -4,7 +4,8 @@ use rfd::FileDialog;
 use uuid::Uuid;
 
 use crate::editor::state::{
-    EditorRoot, MaterialDef, Modal, PendingDelete, RenameTarget, ResourceKind, ResourceTab, Selection,
+    EditorRoot, MaterialDef, Modal, ParticleSystemDef, PendingDelete, RenameTarget, ResourceKind, ResourceTab,
+    Selection,
 };
 use crate::project;
 
@@ -23,7 +24,8 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     ui.horizontal(|ui| {
         for tab in [
             ResourceTab::Models, ResourceTab::Textures, ResourceTab::Shaders,
-            ResourceTab::Materials, ResourceTab::Scenes, ResourceTab::Audio, ResourceTab::Other,
+            ResourceTab::Materials, ResourceTab::Particles, ResourceTab::Scenes,
+            ResourceTab::Audio, ResourceTab::Other,
         ] {
             if ui.selectable_label(current_tab == tab, format!("{tab:?}")).clicked() {
                 new_tab = Some(tab);
@@ -48,6 +50,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 ResourceTab::Audio => list_kind(ui, app_state, ResourceKind::Audio),
                 ResourceTab::Other => list_kind(ui, app_state, ResourceKind::Other),
                 ResourceTab::Materials => list_materials(ui, app_state),
+                ResourceTab::Particles => list_particles(ui, app_state),
                 ResourceTab::Scenes => list_scenes(ui, app_state),
             }
         });
@@ -192,6 +195,73 @@ fn list_materials(ui: &mut Ui, app_state: &mut AppState) {
     finalize(app_state, new_sel, delete, "material", rename_start, rename_commit, rename_cancel);
 }
 
+fn list_particles(ui: &mut Ui, app_state: &mut AppState) {
+    let mut create_clicked = false;
+    if ui.button("+ New").clicked() { create_clicked = true; }
+
+    let (rows, current_sel, renaming) = {
+        let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let rows: Vec<(Uuid, String)> = root.project.as_ref()
+            .map(|p| p.particle_systems.iter().map(|m| (m.uuid, m.config.name.clone())).collect())
+            .unwrap_or_default();
+        (rows, root.editor.selection.clone(), root.editor.renaming.clone())
+    };
+
+    let mut new_sel: Option<Selection> = None;
+    let mut delete: Option<PendingDelete> = None;
+    let mut rename_start: Option<RenameTarget> = None;
+    let mut rename_commit: Option<RenameTarget> = None;
+    let mut rename_cancel = false;
+
+    for (uuid, name) in &rows {
+        let selected = matches!(&current_sel, Selection::Particle(u) if u == uuid);
+        let renaming_this = matches!(&renaming, Some(RenameTarget::Particle { uuid: u, .. }) if u == uuid);
+        ui.horizontal(|ui| {
+            if renaming_this {
+                if let Some(RenameTarget::Particle { uuid, draft }) = &renaming {
+                    let mut d = draft.clone();
+                    let response = ui.text_edit_singleline(&mut d);
+                    response.request_focus();
+                    let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    let commit_btn = ui.small_button("✓").on_hover_text("Apply").clicked();
+                    let cancel_btn = ui.small_button("✗").on_hover_text("Cancel").clicked();
+                    if escape || cancel_btn { rename_cancel = true; }
+                    else if enter || commit_btn {
+                        rename_commit = Some(RenameTarget::Particle { uuid: *uuid, draft: d });
+                    } else {
+                        rename_start = Some(RenameTarget::Particle { uuid: *uuid, draft: d });
+                    }
+                }
+            } else {
+                let resp = ui.selectable_label(selected, name);
+                if resp.clicked() { new_sel = Some(Selection::Particle(*uuid)); }
+                if resp.double_clicked() {
+                    rename_start = Some(RenameTarget::Particle { uuid: *uuid, draft: name.clone() });
+                }
+                if ui.small_button("×").on_hover_text("Delete").clicked() {
+                    delete = Some(PendingDelete::Particle(*uuid));
+                }
+            }
+        });
+    }
+
+    if create_clicked {
+        if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            if let Some(project) = root.project.as_mut() {
+                let name = format!("Particles {}", project.particle_systems.len() + 1);
+                let def = ParticleSystemDef::new_default(name);
+                let uuid = def.uuid;
+                project.particle_systems.push(def);
+                root.editor.selection = Selection::Particle(uuid);
+                root.editor.dirty = true;
+            }
+        }
+    }
+
+    finalize(app_state, new_sel, delete, "particle system", rename_start, rename_commit, rename_cancel);
+}
+
 fn list_scenes(ui: &mut Ui, app_state: &mut AppState) {
     let mut new_clicked = false;
     if ui.button("+ New Scene").clicked() { new_clicked = true; }
@@ -326,6 +396,14 @@ fn commit_rename(app_state: &mut AppState, target: RenameTarget) {
                     if !name.is_empty() {
                         if let Some(s) = project.scenes.get_mut(*index) {
                             s.name = name.to_string();
+                        }
+                    }
+                }
+                RenameTarget::Particle { uuid, draft } => {
+                    let name = draft.trim();
+                    if !name.is_empty() {
+                        if let Some(p) = project.particle_systems.iter_mut().find(|p| &p.uuid == uuid) {
+                            p.config.name = name.to_string();
                         }
                     }
                 }
