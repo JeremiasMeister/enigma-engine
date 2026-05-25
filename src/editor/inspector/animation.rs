@@ -55,5 +55,23 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
                 }
             }
         }
+
+        // --- Transport row ---
+        let has_current = app_state.objects[obj_idx].get_current_animation().is_some();
+        ui.horizontal(|ui| {
+            if ui.add_enabled(has_current, egui::Button::new("Play")).clicked() {
+                if let Some(state) = app_state.objects[obj_idx].get_current_animation_mut().as_mut() {
+                    state.speed = 1.0;
+                }
+            }
+            if ui.add_enabled(has_current, egui::Button::new("Pause")).clicked() {
+                if let Some(state) = app_state.objects[obj_idx].get_current_animation_mut().as_mut() {
+                    state.speed = 0.0;
+                }
+            }
+            if ui.add_enabled(has_current, egui::Button::new("Stop")).clicked() {
+                app_state.objects[obj_idx].stop_animation();
+            }
+        });
     });
 }
