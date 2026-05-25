@@ -25,6 +25,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             inspector::transform::draw_for_light(ui, app_state, index);
             inspector::light::draw(ui, app_state, index);
         }
+        Selection::AmbientLight => {
+            inspector::light::draw_ambient(ui, app_state);
+        }
         Selection::Camera => {
             inspector::camera::draw(ui, app_state);
         }

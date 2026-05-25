@@ -144,6 +144,13 @@ fn apply_pending_delete(app_state: &mut AppState, p: PendingDelete) {
                 app_state.light.remove(idx);
             }
         }
+        PendingDelete::AmbientLight => {
+            app_state.ambient_light = None;
+        }
+    }
+    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.selection = crate::editor::state::Selection::None;
+        r.editor.dirty = true;
     }
 }
 

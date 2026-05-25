@@ -4,7 +4,7 @@ pub mod material;
 
 use std::fs;
 use std::path::Path;
-use enigma_3d::AppState;
+use enigma_3d::{AppState, AppStateSerializer};
 use uuid::Uuid;
 
 use crate::editor::state::{EditorRoot, ProjectState, SceneRef};
@@ -54,12 +54,45 @@ pub fn try_open_project(path: &str, app_state: &mut AppState) -> Result<(), Proj
         .and_then(|p| p.to_str())
         .ok_or(ProjectError::BadPath)?
         .to_string();
-    project.root_path = root_dir;
+    project.root_path = root_dir.clone();
+
+    let active_scene_path = project.scenes.get(project.active_scene_index)
+        .map(|s| Path::new(&root_dir).join("src/resources").join(&s.relative_path));
 
     let root = app_state.get_state_data_value_mut::<EditorRoot>("editor")
         .ok_or(ProjectError::EditorRootMissing)?;
     root.project = Some(project);
+    root.editor.material_cache.clear();
+
+    if let Some(path) = active_scene_path {
+        if let Err(e) = inject_scene_file(app_state, &path) {
+            eprintln!("warning: failed to load active scene: {e}");
+        }
+    }
+
     Ok(())
+}
+
+fn inject_scene_file(app_state: &mut AppState, path: &Path) -> Result<(), ProjectError> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    let text = fs::read_to_string(path).map_err(ProjectError::Io)?;
+    if text.trim().is_empty() || text.trim() == "{}" {
+        clear_scene(app_state);
+        return Ok(());
+    }
+    let serializer: AppStateSerializer = serde_json::from_str(&text).map_err(ProjectError::Parse)?;
+    let display = app_state.display.clone().ok_or(ProjectError::NoDisplay)?;
+    clear_scene(app_state);
+    app_state.inject_serializer(serializer, display, false);
+    Ok(())
+}
+
+fn clear_scene(app_state: &mut AppState) {
+    app_state.objects.clear();
+    app_state.light.clear();
+    app_state.materials.clear();
 }
 
 pub fn try_save_project(app_state: &mut AppState) -> Result<(), ProjectError> {
@@ -113,6 +146,7 @@ pub enum ProjectError {
     BadPath,
     EditorRootMissing,
     NoProject,
+    NoDisplay,
 }
 
 impl std::fmt::Display for ProjectError {
@@ -125,6 +159,7 @@ impl std::fmt::Display for ProjectError {
             ProjectError::BadPath => write!(f, "invalid path"),
             ProjectError::EditorRootMissing => write!(f, "internal: editor root not initialized"),
             ProjectError::NoProject => write!(f, "no project loaded"),
+            ProjectError::NoDisplay => write!(f, "internal: display not yet ready"),
         }
     }
 }

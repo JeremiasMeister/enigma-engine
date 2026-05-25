@@ -167,6 +167,7 @@ pub enum Selection {
     #[default] None,
     SceneObject(Uuid),
     Light(usize),
+    AmbientLight,
     Camera,
     Material(Uuid),
     Resource(Uuid),
@@ -192,6 +193,7 @@ pub enum PendingDelete {
     Scene(usize),
     SceneObject(Uuid),
     Light(usize),
+    AmbientLight,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Debug)]
