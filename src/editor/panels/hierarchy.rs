@@ -76,19 +76,20 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 ui.horizontal(|ui| {
                     if renaming_this {
                         if let Some(RenameTarget::SceneObject { uuid, draft }) = &renaming {
-                            let mut draft = draft.clone();
-                            let response = ui.text_edit_singleline(&mut draft);
+                            let mut d = draft.clone();
+                            let response = ui.text_edit_singleline(&mut d);
                             response.request_focus();
-                            if response.lost_focus() {
-                                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                    rename_commit = Some(RenameTarget::SceneObject { uuid: *uuid, draft: draft.clone() });
-                                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                    rename_cancel = true;
-                                } else {
-                                    rename_commit = Some(RenameTarget::SceneObject { uuid: *uuid, draft: draft.clone() });
-                                }
+                            let enter = response.lost_focus()
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                            let commit_btn = ui.small_button("✓").on_hover_text("Apply").clicked();
+                            let cancel_btn = ui.small_button("✗").on_hover_text("Cancel").clicked();
+                            if escape || cancel_btn {
+                                rename_cancel = true;
+                            } else if enter || commit_btn {
+                                rename_commit = Some(RenameTarget::SceneObject { uuid: *uuid, draft: d });
                             } else {
-                                rename_start = Some(RenameTarget::SceneObject { uuid: *uuid, draft });
+                                rename_start = Some(RenameTarget::SceneObject { uuid: *uuid, draft: d });
                             }
                         }
                     } else {

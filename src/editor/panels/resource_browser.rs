@@ -77,12 +77,14 @@ fn list_kind(ui: &mut Ui, app_state: &mut AppState, kind: ResourceKind) {
                     let mut d = draft.clone();
                     let response = ui.text_edit_singleline(&mut d);
                     response.request_focus();
-                    if response.lost_focus() {
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            rename_cancel = true;
-                        } else {
-                            rename_commit = Some(RenameTarget::Resource { uuid: *uuid, draft: d });
-                        }
+                    let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    let commit_btn = ui.small_button("✓").on_hover_text("Apply").clicked();
+                    let cancel_btn = ui.small_button("✗").on_hover_text("Cancel").clicked();
+                    if escape || cancel_btn {
+                        rename_cancel = true;
+                    } else if enter || commit_btn {
+                        rename_commit = Some(RenameTarget::Resource { uuid: *uuid, draft: d });
                     } else {
                         rename_start = Some(RenameTarget::Resource { uuid: *uuid, draft: d });
                     }
@@ -93,9 +95,9 @@ fn list_kind(ui: &mut Ui, app_state: &mut AppState, kind: ResourceKind) {
                 if resp.double_clicked() {
                     rename_start = Some(RenameTarget::Resource { uuid: *uuid, draft: name.clone() });
                 }
-            }
-            if ui.small_button("×").on_hover_text("Delete").clicked() {
-                delete = Some(PendingDelete::Resource(*uuid));
+                if ui.small_button("×").on_hover_text("Delete").clicked() {
+                    delete = Some(PendingDelete::Resource(*uuid));
+                }
             }
         });
     }
@@ -145,12 +147,14 @@ fn list_materials(ui: &mut Ui, app_state: &mut AppState) {
                     let mut d = draft.clone();
                     let response = ui.text_edit_singleline(&mut d);
                     response.request_focus();
-                    if response.lost_focus() {
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            rename_cancel = true;
-                        } else {
-                            rename_commit = Some(RenameTarget::Material { uuid: *uuid, draft: d });
-                        }
+                    let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    let commit_btn = ui.small_button("✓").on_hover_text("Apply").clicked();
+                    let cancel_btn = ui.small_button("✗").on_hover_text("Cancel").clicked();
+                    if escape || cancel_btn {
+                        rename_cancel = true;
+                    } else if enter || commit_btn {
+                        rename_commit = Some(RenameTarget::Material { uuid: *uuid, draft: d });
                     } else {
                         rename_start = Some(RenameTarget::Material { uuid: *uuid, draft: d });
                     }
@@ -161,9 +165,9 @@ fn list_materials(ui: &mut Ui, app_state: &mut AppState) {
                 if resp.double_clicked() {
                     rename_start = Some(RenameTarget::Material { uuid: *uuid, draft: name.clone() });
                 }
-            }
-            if ui.small_button("×").on_hover_text("Delete").clicked() {
-                delete = Some(PendingDelete::Material(*uuid));
+                if ui.small_button("×").on_hover_text("Delete").clicked() {
+                    delete = Some(PendingDelete::Material(*uuid));
+                }
             }
         });
     }
@@ -209,12 +213,14 @@ fn list_scenes(ui: &mut Ui, app_state: &mut AppState) {
                     let mut d = draft.clone();
                     let response = ui.text_edit_singleline(&mut d);
                     response.request_focus();
-                    if response.lost_focus() {
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            rename_cancel = true;
-                        } else {
-                            rename_commit = Some(RenameTarget::Scene { index: *index, draft: d });
-                        }
+                    let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    let commit_btn = ui.small_button("✓").on_hover_text("Apply").clicked();
+                    let cancel_btn = ui.small_button("✗").on_hover_text("Cancel").clicked();
+                    if escape || cancel_btn {
+                        rename_cancel = true;
+                    } else if enter || commit_btn {
+                        rename_commit = Some(RenameTarget::Scene { index: *index, draft: d });
                     } else {
                         rename_start = Some(RenameTarget::Scene { index: *index, draft: d });
                     }
@@ -225,12 +231,12 @@ fn list_scenes(ui: &mut Ui, app_state: &mut AppState) {
                 if idx == active_index { label.push_str(" — active"); }
                 let resp = ui.selectable_label(idx == active_index, &label);
                 if resp.double_clicked() { switch_to = Some(idx); }
-            }
-            if ui.small_button("⟳").on_hover_text("Rename").clicked() {
-                rename_start = Some(RenameTarget::Scene { index: idx, draft: name.clone() });
-            }
-            if ui.small_button("×").on_hover_text("Delete").clicked() {
-                delete = Some(PendingDelete::Scene(idx));
+                if ui.small_button("⟳").on_hover_text("Rename").clicked() {
+                    rename_start = Some(RenameTarget::Scene { index: idx, draft: name.clone() });
+                }
+                if ui.small_button("×").on_hover_text("Delete").clicked() {
+                    delete = Some(PendingDelete::Scene(idx));
+                }
             }
         });
     }
