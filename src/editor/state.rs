@@ -24,6 +24,8 @@ pub struct ProjectState {
 pub struct MaterialAssignment {
     pub scene: Uuid,
     pub object: Uuid,
+    #[serde(default)]
+    pub shape: usize,
     pub material: Uuid,
 }
 
@@ -42,30 +44,30 @@ impl ProjectState {
         }
     }
 
-    pub fn get_assignment(&self, scene: Uuid, object: Uuid) -> Option<Uuid> {
+    pub fn get_assignment(&self, scene: Uuid, object: Uuid, shape: usize) -> Option<Uuid> {
         self.material_assignments.iter()
-            .find(|a| a.scene == scene && a.object == object)
+            .find(|a| a.scene == scene && a.object == object && a.shape == shape)
             .map(|a| a.material)
     }
 
-    pub fn set_assignment(&mut self, scene: Uuid, object: Uuid, material: Uuid) {
+    pub fn set_assignment(&mut self, scene: Uuid, object: Uuid, shape: usize, material: Uuid) {
         if let Some(a) = self.material_assignments.iter_mut()
-            .find(|a| a.scene == scene && a.object == object)
+            .find(|a| a.scene == scene && a.object == object && a.shape == shape)
         {
             a.material = material;
         } else {
-            self.material_assignments.push(MaterialAssignment { scene, object, material });
+            self.material_assignments.push(MaterialAssignment { scene, object, shape, material });
         }
     }
 
-    pub fn clear_assignment(&mut self, scene: Uuid, object: Uuid) {
-        self.material_assignments.retain(|a| !(a.scene == scene && a.object == object));
+    pub fn clear_assignment(&mut self, scene: Uuid, object: Uuid, shape: usize) {
+        self.material_assignments.retain(|a| !(a.scene == scene && a.object == object && a.shape == shape));
     }
 
-    pub fn assignments_for_scene(&self, scene: Uuid) -> HashMap<Uuid, Uuid> {
+    pub fn assignments_for_object(&self, scene: Uuid, object: Uuid) -> Vec<(usize, Uuid)> {
         self.material_assignments.iter()
-            .filter(|a| a.scene == scene)
-            .map(|a| (a.object, a.material))
+            .filter(|a| a.scene == scene && a.object == object)
+            .map(|a| (a.shape, a.material))
             .collect()
     }
 }

@@ -213,23 +213,52 @@ fn apply_pending_delete(app_state: &mut AppState, p: PendingDelete) {
 }
 
 fn apply_material_assignments(app_state: &mut AppState) {
-    let (assignments, default_mat) = {
+    let (scene_uuid, default_mat) = {
         let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let Some(project) = root.project.as_ref() else { return; };
         let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
         let default_mat = project.materials.first().map(|m| m.uuid);
-        (project.assignments_for_scene(scene.uuid), default_mat)
+        (scene.uuid, default_mat)
+    };
+
+    // Snapshot all per-object/per-shape assignments up front so we don't
+    // re-borrow the editor root inside the object loop.
+    let obj_assignments: Vec<(uuid::Uuid, Vec<(usize, uuid::Uuid)>)> = {
+        let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
+        let Some(project) = root.project.as_ref() else { return; };
+        app_state.objects.iter()
+            .map(|o| {
+                let id = o.get_unique_id();
+                (id, project.assignments_for_object(scene_uuid, id))
+            })
+            .collect()
     };
 
     for obj in app_state.objects.iter_mut() {
         let obj_uuid = obj.get_unique_id();
-        let target = assignments.get(&obj_uuid).copied().or(default_mat);
-        let Some(mat_uuid) = target else { continue; };
-        let mats = obj.get_materials_mut();
-        if mats.is_empty() {
-            mats.push(mat_uuid);
-        } else if mats[0] != mat_uuid {
-            mats[0] = mat_uuid;
+        let shape_count = obj.get_shapes().len();
+        if shape_count == 0 { continue; }
+
+        let by_shape = obj_assignments.iter().find(|(u, _)| *u == obj_uuid)
+            .map(|(_, v)| v.clone()).unwrap_or_default();
+
+        // Existing material slot 0 acts as the per-object fallback for shapes
+        // that have no explicit assignment yet.
+        let existing_first = obj.get_materials().first().copied();
+
+        let mut new_materials: Vec<uuid::Uuid> = Vec::with_capacity(shape_count);
+        for shape_idx in 0..shape_count {
+            let chosen = by_shape.iter().find(|(s, _)| *s == shape_idx).map(|(_, m)| *m)
+                .or(existing_first)
+                .or(default_mat);
+            let Some(uuid) = chosen else { break; };
+            new_materials.push(uuid);
+        }
+        if new_materials.len() != shape_count { continue; }
+
+        *obj.get_materials_mut() = new_materials;
+        for (i, shape) in obj.get_shapes_mut().iter_mut().enumerate() {
+            shape.material_index = i;
         }
     }
 }
