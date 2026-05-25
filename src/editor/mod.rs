@@ -333,19 +333,31 @@ fn default_particle_material(app_state: &AppState, render: &enigma_3d::particle:
 
 fn reconcile_particle_preview(app_state: &mut AppState) {
     use crate::editor::state::Selection;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
-    let (desired_uuid, desired_config) = {
+    let (desired_uuid, desired_config, effective_material) = {
         let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let Some(project) = r.project.as_ref() else { return; };
+        let sprite_default = r.editor.internal_particle_sprite_material;
+        let ribbon_default = r.editor.internal_particle_ribbon_material;
         match &r.editor.selection {
             Selection::Particle(u) => {
                 let def = project.particle_systems.iter().find(|p| p.uuid == *u);
                 match def {
-                    Some(d) => (Some(*u), Some(d.config.clone())),
-                    None => (None, None),
+                    Some(d) => {
+                        let explicit_valid = d.material.filter(|u| app_state.materials.iter().any(|m| m.uuid == *u));
+                        let fallback = match d.config.render {
+                            enigma_3d::particle::RenderStyle::Sprite { .. } => sprite_default,
+                            enigma_3d::particle::RenderStyle::Ribbon { .. } => ribbon_default,
+                        };
+                        let mat = explicit_valid.or(fallback);
+                        (Some(*u), Some(d.config.clone()), mat)
+                    }
+                    None => (None, None, None),
                 }
             }
-            _ => (None, None),
+            _ => (None, None, None),
         }
     };
 
@@ -353,7 +365,14 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
         .get_state_data_value::<EditorRoot>("editor")
         .and_then(|r| r.editor.previewed_particle);
 
-    let new_hash = desired_config.as_ref().map(hash_particle_config);
+    let new_hash = desired_config.as_ref().map(|cfg| {
+        let mat_part = effective_material.map(|m| {
+            let mut h = DefaultHasher::new();
+            m.hash(&mut h);
+            h.finish()
+        }).unwrap_or(0);
+        hash_particle_config(cfg) ^ mat_part
+    });
     let stale = match (desired_uuid, applied, new_hash) {
         (Some(u), Some((au, ah)), Some(h)) => u != au || ah != h,
         (Some(_), None, _) => true,
@@ -363,32 +382,18 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
 
     if !stale { return; }
 
-    // Remove any previously previewed particle instance.
     if let Some((au, _)) = applied {
         app_state.particle_systems.retain(|s| s.handle != au);
     }
 
-    if let (Some(uuid), Some(cfg)) = (desired_uuid, desired_config) {
-        let explicit_mat = app_state
-            .get_state_data_value::<EditorRoot>("editor")
-            .and_then(|r| r.project.as_ref())
-            .and_then(|p| p.particle_systems.iter().find(|d| d.uuid == uuid))
-            .and_then(|d| d.material);
-        // Only honor explicit_mat if it actually exists in app_state.materials —
-        // otherwise the renderer would silently skip the particle system.
-        let explicit_valid = explicit_mat.filter(|u| app_state.materials.iter().any(|m| m.uuid == *u));
-        let material_uuid = explicit_valid.or_else(|| default_particle_material(app_state, &cfg.render));
+    if let (Some(uuid), Some(cfg), Some(hash)) = (desired_uuid, desired_config, new_hash) {
         match enigma_3d::particle::ParticleSystem::from_config(cfg) {
             Ok(mut sys) => {
                 sys.handle = uuid;
-                sys.material_id = material_uuid;
+                sys.material_id = effective_material;
                 app_state.particle_systems.push(sys);
                 if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
-                    let h = r.project.as_ref()
-                        .and_then(|p| p.particle_systems.iter().find(|d| d.uuid == uuid))
-                        .map(|d| hash_particle_config(&d.config))
-                        .unwrap_or(0);
-                    r.editor.previewed_particle = Some((uuid, h));
+                    r.editor.previewed_particle = Some((uuid, hash));
                 }
             }
             Err(e) => {
@@ -398,10 +403,8 @@ fn reconcile_particle_preview(app_state: &mut AppState) {
                 }
             }
         }
-    } else {
-        if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
-            r.editor.previewed_particle = None;
-        }
+    } else if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        r.editor.previewed_particle = None;
     }
 }
 
@@ -417,22 +420,34 @@ fn hash_particle_config(cfg: &enigma_3d::particle::ParticleSystemConfig) -> u64 
 }
 
 fn reconcile_particle_instances(app_state: &mut AppState) {
-    // Snapshot all instances in the active scene + def configs.
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    // Snapshot all instances in the active scene + def configs. Resolve the
+    // effective material (explicit if valid, else built-in fallback) here so
+    // the hash captures it — otherwise switching from None → built-in never
+    // triggers a rebuild and systems stay with material_id None.
     let snapshot: Vec<(uuid::Uuid, uuid::Uuid, [f32; 3], u64, Option<uuid::Uuid>)> = {
         let Some(r) = app_state.get_state_data_value::<EditorRoot>("editor") else { return; };
         let Some(project) = r.project.as_ref() else { return; };
         let Some(scene) = project.scenes.get(project.active_scene_index) else { return; };
+        let sprite_default = r.editor.internal_particle_sprite_material;
+        let ribbon_default = r.editor.internal_particle_ribbon_material;
         scene.particle_instances.iter().filter_map(|inst| {
             let def = project.particle_systems.iter().find(|d| d.uuid == inst.def_uuid)?;
-            let mat_part = def.material.map(|m| {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
+            let explicit_valid = def.material.filter(|u| app_state.materials.iter().any(|m| m.uuid == *u));
+            let fallback = match def.config.render {
+                enigma_3d::particle::RenderStyle::Sprite { .. } => sprite_default,
+                enigma_3d::particle::RenderStyle::Ribbon { .. } => ribbon_default,
+            };
+            let effective_mat = explicit_valid.or(fallback);
+            let mat_part = effective_mat.map(|m| {
                 let mut h = DefaultHasher::new();
                 m.hash(&mut h);
                 h.finish()
             }).unwrap_or(0);
             let hash = hash_particle_config(&def.config) ^ position_hash(inst.position) ^ mat_part;
-            Some((inst.uuid, inst.def_uuid, inst.position, hash, def.material))
+            Some((inst.uuid, inst.def_uuid, inst.position, hash, effective_mat))
         }).collect()
     };
 
@@ -452,7 +467,7 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
     }
 
     // Build / rebuild instances.
-    for (inst_uuid, def_uuid, position, hash, explicit_material) in snapshot {
+    for (inst_uuid, def_uuid, position, hash, effective_material) in snapshot {
         let prev_hash = applied.get(&inst_uuid).copied();
         if prev_hash == Some(hash) { continue; }
 
@@ -465,13 +480,11 @@ fn reconcile_particle_instances(app_state: &mut AppState) {
 
         // Remove existing instance with this uuid if any.
         app_state.particle_systems.retain(|s| s.handle != inst_uuid);
-        let explicit_valid = explicit_material.filter(|u| app_state.materials.iter().any(|m| m.uuid == *u));
-        let material_uuid = explicit_valid.or_else(|| default_particle_material(app_state, &config.render));
 
         match enigma_3d::particle::ParticleSystem::from_config(config) {
             Ok(mut sys) => {
                 sys.handle = inst_uuid;
-                sys.material_id = material_uuid;
+                sys.material_id = effective_material;
                 let m = [
                     [1.0_f32, 0.0, 0.0, 0.0],
                     [0.0, 1.0, 0.0, 0.0],
