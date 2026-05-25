@@ -22,6 +22,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         Selection::SceneObject(uuid) => {
             inspector::transform::draw_for_object(ui, app_state, uuid);
             inspector::mesh_material::draw(ui, app_state, uuid);
+            inspector::animation::draw(ui, app_state, uuid);
         }
         Selection::Light(index) => {
             inspector::transform::draw_for_light(ui, app_state, index);

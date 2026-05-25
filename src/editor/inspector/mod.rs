@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod transform;
 pub mod mesh_material;
 pub mod light;
