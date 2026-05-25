@@ -1,6 +1,120 @@
 use egui::Ui;
 use enigma_3d::AppState;
+use rfd::AsyncFileDialog;
 
-pub fn draw(_ui: &mut Ui, _app_state: &mut AppState) {
-    // populated in Task 8
+use crate::editor::actions;
+use crate::editor::state::{EditorRoot, ProjectState};
+use crate::project;
+
+pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
+    ui.horizontal(|ui| {
+        ui.menu_button("File", |ui| {
+            if ui.button("New Project").clicked() {
+                if let Some(path) = pick_folder() {
+                    if let Err(e) = project::try_new_project(&path, app_state) {
+                        eprintln!("new project failed: {e}");
+                    }
+                }
+                ui.close_menu();
+            }
+            if ui.button("Open Project").clicked() {
+                if let Some(path) = pick_file("json") {
+                    if let Err(e) = project::try_open_project(&path, app_state) {
+                        eprintln!("open project failed: {e}");
+                    }
+                }
+                ui.close_menu();
+            }
+            if ui.button("Save Project").clicked() {
+                if let Err(e) = project::try_save_project(app_state) {
+                    eprintln!("save project failed: {e}");
+                }
+                ui.close_menu();
+            }
+            if ui.button("Save Scene").clicked() {
+                save_scene(app_state);
+                ui.close_menu();
+            }
+        });
+
+        let project_loaded = current_project_clone(app_state).is_some();
+
+        ui.add_enabled_ui(project_loaded, |ui| {
+            if ui.button("Play").clicked() {
+                if let Some(p) = current_project_clone(app_state) {
+                    actions::run_project(&p);
+                }
+            }
+            if ui.button("Debug Build").clicked() {
+                if let Some(p) = current_project_clone(app_state) {
+                    actions::build_project(&p, false);
+                }
+            }
+            if ui.button("Release Build").clicked() {
+                if let Some(p) = current_project_clone(app_state) {
+                    actions::build_project(&p, true);
+                }
+            }
+        });
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") {
+                if let Some(p) = &root.project {
+                    if root.editor.dirty {
+                        ui.label("•");
+                    }
+                    if let Some(scene) = p.scenes.get(p.active_scene_index) {
+                        ui.label(format!("scene: {}", scene.name));
+                    }
+                    ui.label(format!("project: {}", p.name));
+                } else {
+                    ui.label("no project");
+                }
+            }
+        });
+    });
+}
+
+fn current_project_clone(app_state: &mut AppState) -> Option<ProjectState> {
+    app_state.get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.project.clone())
+}
+
+fn save_scene(app_state: &mut AppState) {
+    if let Some(p) = current_project_clone(app_state) {
+        if let Err(e) = crate::project::scene::save_active(&p, app_state) {
+            eprintln!("save scene failed: {e:?}");
+        }
+    }
+}
+
+fn pick_folder() -> Option<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    async_std::task::spawn(async move {
+        if let Some(p) = AsyncFileDialog::new().pick_folder().await {
+            let _ = tx.send(p.path().to_string_lossy().into_owned());
+        } else {
+            let _ = tx.send(String::new());
+        }
+    });
+    match rx.recv() {
+        Ok(s) if !s.is_empty() => Some(s),
+        _ => None,
+    }
+}
+
+fn pick_file(filter: &str) -> Option<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let f = filter.to_string();
+    async_std::task::spawn(async move {
+        if let Some(p) = AsyncFileDialog::new().add_filter(&f, &[&f]).pick_file().await {
+            let _ = tx.send(p.path().to_string_lossy().into_owned());
+        } else {
+            let _ = tx.send(String::new());
+        }
+    });
+    match rx.recv() {
+        Ok(s) if !s.is_empty() => Some(s),
+        _ => None,
+    }
 }
