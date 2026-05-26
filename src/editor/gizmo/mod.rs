@@ -1,12 +1,13 @@
 pub mod math;
 pub mod toolbar;
+pub mod rotate;
 pub mod translate;
 
 use egui::{Context, Pos2, Rect, Ui};
 use enigma_3d::AppState;
-use nalgebra::Vector3;
+use nalgebra::{UnitQuaternion, Vector3};
 
-use crate::editor::state::{Drag, EditorRoot, GizmoMode, Selection, Space};
+use crate::editor::state::{Axis, Drag, EditorRoot, GizmoMode, Selection, Space};
 
 pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
     // Reset the per-frame consumed flag at the start of each frame.
@@ -43,7 +44,7 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
     // Drag in progress: update and possibly end.
     if drag_some {
         let released = ctx.input(|i| i.pointer.primary_released());
-        update_active_drag(app_state, cursor, space, rotation, snap, &camera, rect);
+        update_active_drag(app_state, cursor, pivot, space, rotation, snap, &camera, rect);
         if released {
             end_drag(app_state);
         }
@@ -54,8 +55,16 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
     let camera_pos = Vector3::from(camera.get_position());
     let size = translate::handle_world_size(camera_pos, pivot, camera.fov);
 
+    let target_full = matches!(
+        app_state.get_state_data_value::<EditorRoot>("editor")
+            .map(|r| r.editor.selection.clone()),
+        Some(Selection::SceneObject(_))
+    );
+
     let hovered = match mode {
         GizmoMode::Translate => translate::hit_test(cursor, pivot, size, space, rotation, &camera, rect)
+            .map(crate::editor::state::Handle::Axis),
+        GizmoMode::Rotate if target_full => rotate::hit_test(cursor, pivot, size, space, rotation, &camera, rect)
             .map(crate::editor::state::Handle::Axis),
         _ => None,
     };
@@ -67,10 +76,16 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
     let pressed = ctx.input(|i| i.pointer.primary_pressed());
     if pressed {
         if let Some(crate::editor::state::Handle::Axis(axis)) = hovered {
-            let drag = translate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect);
-            if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
-                root.editor.gizmo.drag = Some(drag);
-                root.editor.gizmo.consumed_click_this_frame = true;
+            let drag = match mode {
+                GizmoMode::Translate => Some(translate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect)),
+                GizmoMode::Rotate => rotate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect),
+                _ => None,
+            };
+            if let Some(drag) = drag {
+                if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                    root.editor.gizmo.drag = Some(drag);
+                    root.editor.gizmo.consumed_click_this_frame = true;
+                }
             }
         }
     }
@@ -87,6 +102,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
                 };
                 let drag_axis = match &root.editor.gizmo.drag {
                     Some(Drag::Translate { axis, .. }) => Some(*axis),
+                    Some(Drag::Rotate { axis, .. }) => Some(*axis),
                     _ => None,
                 };
                 let hover_axis = match root.editor.gizmo.hovered_handle {
@@ -117,6 +133,12 @@ pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
 
             if show_translate {
                 translate::draw(ui, rect, pivot, size, space, rotation, &camera,
+                    hovered_axis, dragging_axis);
+            }
+
+            let show_rotate = matches!(mode, GizmoMode::Rotate) && target_full;
+            if show_rotate {
+                rotate::draw(ui, rect, pivot, size, space, rotation, &camera,
                     hovered_axis, dragging_axis);
             }
         }
@@ -161,6 +183,7 @@ pub(crate) fn selection_rotation(app_state: &AppState) -> Vector3<f32> {
 fn update_active_drag(
     app_state: &mut AppState,
     cursor: Pos2,
+    pivot: Vector3<f32>,
     space: Space,
     rotation: Vector3<f32>,
     snap: bool,
@@ -170,16 +193,33 @@ fn update_active_drag(
     let drag_snapshot = app_state.get_state_data_value::<EditorRoot>("editor")
         .and_then(|r| r.editor.gizmo.drag.as_ref().map(|d| match d {
             Drag::Translate { axis, start_pos, start_on_axis } =>
-                Some((*axis, *start_pos, *start_on_axis)),
-            _ => None,
-        }))
-        .flatten();
-    if let Some((axis, start_pos, start_on_axis)) = drag_snapshot {
-        let new_pos = translate::update_drag(
-            axis, start_pos, start_on_axis, cursor, space, rotation, snap, camera, rect,
-        );
-        apply_position(app_state, new_pos);
+                DragSnapshot::Translate(*axis, *start_pos, *start_on_axis),
+            Drag::Rotate { axis, start_quat, start_dir } =>
+                DragSnapshot::Rotate(*axis, *start_quat, *start_dir),
+            Drag::Scale { .. } => DragSnapshot::Other,
+        }));
+    let Some(snap_data) = drag_snapshot else { return; };
+    match snap_data {
+        DragSnapshot::Translate(axis, start_pos, start_on_axis) => {
+            let new_pos = translate::update_drag(
+                axis, start_pos, start_on_axis, cursor, space, rotation, snap, camera, rect,
+            );
+            apply_position(app_state, new_pos);
+        }
+        DragSnapshot::Rotate(axis, start_quat, start_dir) => {
+            let new_rot = rotate::update_drag(
+                axis, start_quat, start_dir, pivot, cursor, space, snap, camera, rect,
+            );
+            apply_rotation(app_state, new_rot);
+        }
+        DragSnapshot::Other => {}
     }
+}
+
+enum DragSnapshot {
+    Translate(Axis, Vector3<f32>, Vector3<f32>),
+    Rotate(Axis, UnitQuaternion<f32>, Vector3<f32>),
+    Other,
 }
 
 fn apply_position(app_state: &mut AppState, new_pos: Vector3<f32>) {
@@ -209,6 +249,20 @@ fn apply_position(app_state: &mut AppState, new_pos: Vector3<f32>) {
             }
         }
         _ => {}
+    }
+    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        root.editor.dirty = true;
+    }
+}
+
+fn apply_rotation(app_state: &mut AppState, new_rot: Vector3<f32>) {
+    let selection = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.selection.clone());
+    let Some(selection) = selection else { return; };
+    if let Selection::SceneObject(uuid) = selection {
+        if let Some(o) = app_state.objects.iter_mut().find(|o| o.get_unique_id() == uuid) {
+            o.transform.rotation = new_rot;
+        }
     }
     if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         root.editor.dirty = true;
