@@ -1,4 +1,5 @@
 use enigma_3d::particle::ParticleSystemConfig;
+use nalgebra::{UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -301,6 +302,7 @@ pub struct EditorState {
     pub last_job: Option<JobOutcome>,
     pub project_load: Option<ProjectLoadJob>,
     pub save_job: Option<SaveJob>,
+    pub gizmo: GizmoState,
 }
 
 pub struct SaveJob {
@@ -412,6 +414,61 @@ pub enum RenameTarget {
     Light { index: usize, draft: String },
     Particle { uuid: Uuid, draft: String },
     ParticleInstance { uuid: Uuid, draft: String },
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GizmoMode {
+    #[default]
+    None,
+    Translate,
+    Rotate,
+    Scale,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Space {
+    #[default]
+    World,
+    Local,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Axis { X, Y, Z }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Handle {
+    Axis(Axis),
+    Center,
+}
+
+pub enum Drag {
+    Translate {
+        axis: Axis,
+        start_pos: Vector3<f32>,
+        start_on_axis: Vector3<f32>,
+    },
+    Rotate {
+        axis: Axis,
+        start_quat: UnitQuaternion<f32>,
+        start_dir: Vector3<f32>,
+    },
+    Scale {
+        handle: Handle,
+        start_scale: Vector3<f32>,
+        start_pivot_screen: egui::Pos2,
+        start_cursor: egui::Pos2,
+        start_distance: f32,
+    },
+}
+
+#[derive(Default)]
+pub struct GizmoState {
+    pub mode: GizmoMode,
+    pub space: Space,
+    pub snap_enabled: bool,
+    pub drag: Option<Drag>,
+    pub hovered_handle: Option<Handle>,
+    pub consumed_click_this_frame: bool,
 }
 
 #[cfg(test)]
