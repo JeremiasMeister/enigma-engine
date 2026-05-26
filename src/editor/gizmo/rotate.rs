@@ -39,7 +39,7 @@ pub fn hit_test(
     space: Space,
     rotation: Vector3<f32>,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Option<Axis> {
     let mut best: Option<(Axis, f32)> = None;
     for axis in [Axis::X, Axis::Y, Axis::Z] {
@@ -47,7 +47,7 @@ pub fn hit_test(
         let pts = sample_ring(pivot, dir, radius);
         let mut screen_pts: Vec<Pos2> = Vec::with_capacity(RING_SAMPLES);
         for p in &pts {
-            if let Some(s) = math::world_to_screen(camera, rect, *p) {
+            if let Some(s) = math::world_to_screen(camera, screen, *p) {
                 screen_pts.push(s);
             }
         }
@@ -81,12 +81,13 @@ pub fn draw(
     dragging: Option<Axis>,
 ) {
     let painter = ui.painter_at(rect);
+    let screen = ui.ctx().screen_rect();
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         let dir = axis_dir(axis, space, rotation);
         let pts = sample_ring(pivot, dir, radius);
         let mut screen_pts: Vec<Pos2> = Vec::with_capacity(RING_SAMPLES);
         for p in &pts {
-            if let Some(s) = math::world_to_screen(camera, rect, *p) {
+            if let Some(s) = math::world_to_screen(camera, screen, *p) {
                 screen_pts.push(s);
             }
         }
@@ -107,10 +108,10 @@ pub fn begin_drag(
     space: Space,
     rotation: Vector3<f32>,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Option<Drag> {
     let dir = axis_dir(axis, space, rotation);
-    let (ray_o, ray_d) = math::unproject(camera, cursor, rect);
+    let (ray_o, ray_d) = math::unproject(camera, cursor, screen);
     let p0 = math::ray_plane_intersect(ray_o, ray_d, pivot, dir)?;
     let start_dir = (p0 - pivot).normalize();
     let start_quat = UnitQuaternion::from_euler_angles(rotation.x, rotation.y, rotation.z);
@@ -128,7 +129,7 @@ pub fn update_drag(
     space: Space,
     snap: bool,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Vector3<f32> {
     // Anchor the ring direction in the START rotation so it stays put across the drag.
     let start_rotation = {
@@ -137,7 +138,7 @@ pub fn update_drag(
     };
     let dir = axis_dir(axis, space, start_rotation);
 
-    let (ray_o, ray_d) = math::unproject(camera, cursor, rect);
+    let (ray_o, ray_d) = math::unproject(camera, cursor, screen);
     let Some(p) = math::ray_plane_intersect(ray_o, ray_d, pivot, dir) else {
         return start_rotation;
     };

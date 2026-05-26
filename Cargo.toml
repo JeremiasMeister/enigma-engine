@@ -23,3 +23,6 @@ nalgebra = "0.32.3"
 
 [dev-dependencies]
 tempfile = "3"
+
+[patch."https://github.com/JeremiasMeister/enigma-3d"]
+enigma-3d = { path = "/Users/cg-jm/jm/enigma-3d" }

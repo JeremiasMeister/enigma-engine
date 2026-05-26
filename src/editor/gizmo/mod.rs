@@ -1,6 +1,5 @@
 pub mod math;
 pub mod toolbar;
-pub mod grid;
 pub mod rotate;
 pub mod scale;
 pub mod translate;
@@ -65,10 +64,15 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
 
     let rotation = selection_rotation(app_state);
 
+    // Projection rect is the full egui screen — the engine renders the 3D scene
+    // to the OS window, not into the viewport panel. The panel `rect` stays in
+    // use above for cursor-in-viewport gating.
+    let screen = ctx.screen_rect();
+
     // Drag in progress: update and possibly end.
     if drag_some {
         let released = ctx.input(|i| i.pointer.primary_released());
-        update_active_drag(app_state, cursor, pivot, space, rotation, snap, &camera, rect);
+        update_active_drag(app_state, cursor, pivot, space, rotation, snap, &camera, screen);
         if released {
             end_drag(app_state);
         }
@@ -86,11 +90,11 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
     );
 
     let hovered = match mode {
-        GizmoMode::Translate => translate::hit_test(cursor, pivot, size, space, rotation, &camera, rect)
+        GizmoMode::Translate => translate::hit_test(cursor, pivot, size, space, rotation, &camera, screen)
             .map(crate::editor::state::Handle::Axis),
-        GizmoMode::Rotate if target_full => rotate::hit_test(cursor, pivot, size, space, rotation, &camera, rect)
+        GizmoMode::Rotate if target_full => rotate::hit_test(cursor, pivot, size, space, rotation, &camera, screen)
             .map(crate::editor::state::Handle::Axis),
-        GizmoMode::Scale if target_full => scale::hit_test(cursor, pivot, size, rotation, &camera, rect),
+        GizmoMode::Scale if target_full => scale::hit_test(cursor, pivot, size, rotation, &camera, screen),
         _ => None,
     };
 
@@ -104,11 +108,11 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
             let start_scale = selection_scale(app_state).unwrap_or(Vector3::new(1.0, 1.0, 1.0));
             let drag = match (mode, handle) {
                 (GizmoMode::Translate, crate::editor::state::Handle::Axis(axis)) =>
-                    Some(translate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect)),
+                    Some(translate::begin_drag(axis, cursor, pivot, space, rotation, &camera, screen)),
                 (GizmoMode::Rotate, crate::editor::state::Handle::Axis(axis)) =>
-                    rotate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect),
+                    rotate::begin_drag(axis, cursor, pivot, space, rotation, &camera, screen),
                 (GizmoMode::Scale, h) =>
-                    scale::begin_drag(h, cursor, pivot, start_scale, &camera, rect),
+                    scale::begin_drag(h, cursor, pivot, start_scale, &camera, screen),
                 _ => None,
             };
             if let Some(drag) = drag {
@@ -122,16 +126,12 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
 }
 
 pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
-    // Grid renders first, regardless of selection, so it's always available as
-    // a spatial reference. It sits below the gizmo handles since handles draw
-    // after this block.
-    let grid_enabled = app_state.get_state_data_value::<EditorRoot>("editor")
-        .map(|r| r.editor.gizmo.grid_enabled)
-        .unwrap_or(true);
-    if grid_enabled {
-        if let Some(camera) = app_state.camera.as_ref() {
-            let camera = camera.clone();
-            grid::draw(ui, rect, &camera);
+    // The grid is now rendered by the engine's `GridOverlay` post-process so
+    // it can depth-test against scene geometry. Mirror the toolbar's enabled
+    // bool into the shared Arc so the next frame's render reflects it.
+    if let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") {
+        if let Some(handle) = root.editor.gizmo.grid_overlay_enable.as_ref() {
+            handle.store(root.editor.gizmo.grid_enabled, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -244,7 +244,7 @@ fn update_active_drag(
     rotation: Vector3<f32>,
     snap: bool,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) {
     let drag_snapshot = app_state.get_state_data_value::<EditorRoot>("editor")
         .and_then(|r| r.editor.gizmo.drag.as_ref().map(|d| match d {
@@ -259,13 +259,13 @@ fn update_active_drag(
     match snap_data {
         DragSnapshot::Translate(axis, start_pos, start_on_axis) => {
             let new_pos = translate::update_drag(
-                axis, start_pos, start_on_axis, cursor, space, rotation, snap, camera, rect,
+                axis, start_pos, start_on_axis, cursor, space, rotation, snap, camera, screen,
             );
             apply_position(app_state, new_pos);
         }
         DragSnapshot::Rotate(axis, start_quat, start_dir) => {
             let new_rot = rotate::update_drag(
-                axis, start_quat, start_dir, pivot, cursor, space, snap, camera, rect,
+                axis, start_quat, start_dir, pivot, cursor, space, snap, camera, screen,
             );
             apply_rotation(app_state, new_rot);
         }

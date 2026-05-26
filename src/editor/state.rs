@@ -466,6 +466,11 @@ pub struct GizmoState {
     pub space: Space,
     pub snap_enabled: bool,
     pub grid_enabled: bool,
+    /// Mirror of `grid_enabled` shared with the engine's `GridOverlay`
+    /// post-process. The toolbar mutates `grid_enabled` first; an editor pass
+    /// pushes that into this handle so the next frame's render reflects it.
+    /// `None` until the start-injection has registered the overlay.
+    pub grid_overlay_enable: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub drag: Option<Drag>,
     pub hovered_handle: Option<Handle>,
     pub consumed_click_this_frame: bool,
@@ -478,6 +483,7 @@ impl Default for GizmoState {
             space: Space::default(),
             snap_enabled: false,
             grid_enabled: true,
+            grid_overlay_enable: None,
             drag: None,
             hovered_handle: None,
             consumed_click_this_frame: false,

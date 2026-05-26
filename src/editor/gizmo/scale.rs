@@ -19,13 +19,13 @@ pub fn hit_test(
     size: f32,
     rotation: Vector3<f32>,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Option<Handle> {
     let mut best: Option<(Handle, f32)> = None;
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         let dir = axis_dir(axis, Space::Local, rotation);
         let tip = pivot + dir * size;
-        let Some(tip_s) = math::world_to_screen(camera, rect, tip) else { continue };
+        let Some(tip_s) = math::world_to_screen(camera, screen, tip) else { continue };
         let r = cube_screen_radius();
         let d = (cursor - tip_s).length();
         if d <= r + HIT_TOLERANCE {
@@ -35,7 +35,7 @@ pub fn hit_test(
             };
         }
     }
-    if let Some(center_s) = math::world_to_screen(camera, rect, pivot) {
+    if let Some(center_s) = math::world_to_screen(camera, screen, pivot) {
         let r = cube_screen_radius() * 0.8;
         let d = (cursor - center_s).length();
         if d <= r + HIT_TOLERANCE {
@@ -59,10 +59,11 @@ pub fn draw(
     dragging: Option<Handle>,
 ) {
     let painter = ui.painter_at(rect);
+    let screen = ui.ctx().screen_rect();
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         let dir = axis_dir(axis, Space::Local, rotation);
-        let Some(a) = math::world_to_screen(camera, rect, pivot) else { continue };
-        let Some(b) = math::world_to_screen(camera, rect, pivot + dir * size) else { continue };
+        let Some(a) = math::world_to_screen(camera, screen, pivot) else { continue };
+        let Some(b) = math::world_to_screen(camera, screen, pivot + dir * size) else { continue };
         let hov = matches!(hovered, Some(Handle::Axis(x)) if x == axis);
         let drg = matches!(dragging, Some(Handle::Axis(x)) if x == axis);
         let color = axis_color(axis, hov, drg);
@@ -74,7 +75,7 @@ pub fn draw(
             color,
         );
     }
-    if let Some(c) = math::world_to_screen(camera, rect, pivot) {
+    if let Some(c) = math::world_to_screen(camera, screen, pivot) {
         let r = cube_screen_radius() * 0.8;
         let hov = matches!(hovered, Some(Handle::Center));
         let drg = matches!(dragging, Some(Handle::Center));
@@ -95,9 +96,9 @@ pub fn begin_drag(
     pivot: Vector3<f32>,
     start_scale: Vector3<f32>,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Option<Drag> {
-    let start_pivot_screen = math::world_to_screen(camera, rect, pivot)?;
+    let start_pivot_screen = math::world_to_screen(camera, screen, pivot)?;
     let start_distance = (cursor - start_pivot_screen).length();
     if start_distance < 1.0 { return None; } // guard against div-by-zero
     Some(Drag::Scale {

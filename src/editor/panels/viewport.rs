@@ -54,7 +54,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         if drag_active || gizmo_consumed { return; }
 
         let Some(camera) = app_state.camera.as_ref() else { return; };
-        let (origin, dir) = math::unproject(camera, pos, rect);
+        let (origin, dir) = math::unproject(camera, pos, ctx.screen_rect());
         let length = camera.far;
 
         let mut ray = RayCast::new(origin, dir, length);

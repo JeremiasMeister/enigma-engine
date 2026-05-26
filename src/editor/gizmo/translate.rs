@@ -54,15 +54,15 @@ pub fn hit_test(
     space: Space,
     rotation: Vector3<f32>,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Option<Axis> {
     let mut best: Option<(Axis, f32)> = None;
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         let dir = axis_dir(axis, space, rotation);
         let a_world = pivot;
         let b_world = pivot + dir * size;
-        let Some(a) = math::world_to_screen(camera, rect, a_world) else { continue };
-        let Some(b) = math::world_to_screen(camera, rect, b_world) else { continue };
+        let Some(a) = math::world_to_screen(camera, screen, a_world) else { continue };
+        let Some(b) = math::world_to_screen(camera, screen, b_world) else { continue };
         let d = math::distance_point_to_segment_2d(cursor, a, b);
         if d <= HIT_TOLERANCE {
             best = match best {
@@ -87,10 +87,11 @@ pub fn draw(
     dragging: Option<Axis>,
 ) {
     let painter = ui.painter_at(rect);
+    let screen = ui.ctx().screen_rect();
     for axis in [Axis::X, Axis::Y, Axis::Z] {
         let dir = axis_dir(axis, space, rotation);
-        let Some(a) = math::world_to_screen(camera, rect, pivot) else { continue };
-        let Some(b) = math::world_to_screen(camera, rect, pivot + dir * size) else { continue };
+        let Some(a) = math::world_to_screen(camera, screen, pivot) else { continue };
+        let Some(b) = math::world_to_screen(camera, screen, pivot + dir * size) else { continue };
         let color = axis_color(axis, hovered == Some(axis), dragging == Some(axis));
         painter.line_segment([a, b], Stroke::new(3.0, color));
         painter.circle_filled(b, 5.0, color);
@@ -105,10 +106,10 @@ pub fn begin_drag(
     space: Space,
     rotation: Vector3<f32>,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Drag {
     let dir = axis_dir(axis, space, rotation);
-    let (ray_o, ray_d) = math::unproject(camera, cursor, rect);
+    let (ray_o, ray_d) = math::unproject(camera, cursor, screen);
     let start_on_axis = math::closest_point_on_line_to_ray(pivot, dir, ray_o, ray_d);
     Drag::Translate {
         axis,
@@ -127,10 +128,10 @@ pub fn update_drag(
     rotation: Vector3<f32>,
     snap: bool,
     camera: &enigma_3d::camera::Camera,
-    rect: Rect,
+    screen: Rect,
 ) -> Vector3<f32> {
     let dir = axis_dir(axis, space, rotation);
-    let (ray_o, ray_d) = math::unproject(camera, cursor, rect);
+    let (ray_o, ray_d) = math::unproject(camera, cursor, screen);
     let current_on_axis = math::closest_point_on_line_to_ray(start_pos, dir, ray_o, ray_d);
     let mut delta = (current_on_axis - start_on_axis).dot(&dir);
     if snap {

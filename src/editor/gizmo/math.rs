@@ -18,9 +18,14 @@ fn screen_basis(forward: Vector3<f32>) -> (Vector3<f32>, Vector3<f32>) {
     (right, up)
 }
 
-/// Project a world-space point to screen-space coordinates inside `rect`.
-/// Returns `None` if the point is behind the camera (view_z <= 0).
-pub fn world_to_screen(camera: &Camera, rect: Rect, world: Vector3<f32>) -> Option<Pos2> {
+/// Project a world-space point to screen-space coordinates.
+/// `screen` is the rect the engine projects the 3D scene into — in this editor
+/// that is the full egui screen, since the engine renders to the OS window with
+/// projection aspect = `camera.width / camera.height`. Passing a panel sub-rect
+/// here makes the result diverge from the rendered scene whenever the panel's
+/// aspect or position differs from the window's. Returns `None` if the point is
+/// behind the camera (view_z <= 0).
+pub fn world_to_screen(camera: &Camera, screen: Rect, world: Vector3<f32>) -> Option<Pos2> {
     let cam_pos = Vector3::from(camera.get_position());
     let forward = Vector3::from(camera.calculate_direction_vector());
     let (right, up) = screen_basis(forward);
@@ -40,8 +45,8 @@ pub fn world_to_screen(camera: &Camera, rect: Rect, world: Vector3<f32>) -> Opti
     let ndc_x = view_x / half_w;
     let ndc_y = view_y / half_h;
 
-    let screen_x = rect.min.x + (ndc_x + 1.0) * 0.5 * rect.width();
-    let screen_y = rect.min.y + (1.0 - ndc_y) * 0.5 * rect.height();
+    let screen_x = screen.min.x + (ndc_x + 1.0) * 0.5 * screen.width();
+    let screen_y = screen.min.y + (1.0 - ndc_y) * 0.5 * screen.height();
     Some(Pos2::new(screen_x, screen_y))
 }
 
@@ -51,7 +56,7 @@ pub fn world_to_screen(camera: &Camera, rect: Rect, world: Vector3<f32>) -> Opti
 /// behind the near plane.
 pub fn world_segment_to_screen(
     camera: &Camera,
-    rect: Rect,
+    screen: Rect,
     a: Vector3<f32>,
     b: Vector3<f32>,
 ) -> Option<(Pos2, Pos2)> {
@@ -72,16 +77,18 @@ pub fn world_segment_to_screen(
         let t = (NEAR - zb) / (za - zb);
         (a, b + (a - b) * t)
     };
-    let a_s = world_to_screen(camera, rect, a_clipped)?;
-    let b_s = world_to_screen(camera, rect, b_clipped)?;
+    let a_s = world_to_screen(camera, screen, a_clipped)?;
+    let b_s = world_to_screen(camera, screen, b_clipped)?;
     Some((a_s, b_s))
 }
 
 /// Convert a screen-space cursor position to a world-space ray.
-/// Returns `(origin, direction)` with `direction` normalized.
-pub fn unproject(camera: &Camera, screen_pos: Pos2, rect: Rect) -> (Vector3<f32>, Vector3<f32>) {
-    let ndc_x = (screen_pos.x - rect.min.x) / rect.width() * 2.0 - 1.0;
-    let ndc_y = -((screen_pos.y - rect.min.y) / rect.height() * 2.0 - 1.0);
+/// `screen` must be the same rect the engine projects into (see
+/// `world_to_screen`) so the unprojection inverts the same mapping the renderer
+/// used. Returns `(origin, direction)` with `direction` normalized.
+pub fn unproject(camera: &Camera, screen_pos: Pos2, screen: Rect) -> (Vector3<f32>, Vector3<f32>) {
+    let ndc_x = (screen_pos.x - screen.min.x) / screen.width() * 2.0 - 1.0;
+    let ndc_y = -((screen_pos.y - screen.min.y) / screen.height() * 2.0 - 1.0);
 
     let aspect = camera.width / camera.height;
     let half_h = (camera.fov / 2.0).tan();
