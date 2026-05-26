@@ -58,20 +58,15 @@ fn line_color_z(z: i32) -> Color32 {
     else { MINOR_COLOR }
 }
 
-/// Project the camera's gaze onto Y=0 and snap to MINOR_STEP so the grid
-/// follows the camera but stays aligned to integer world coordinates.
+/// Center the grid on the camera's XZ position, snapped to MINOR_STEP so the
+/// grid follows the camera but stays aligned to integer world coordinates.
+/// Centering on the camera (rather than its gaze landing point on Y=0) keeps
+/// the area directly under the camera covered no matter where it's looking.
 fn grid_center(camera: &enigma_3d::camera::Camera) -> (i32, i32) {
     let pos = Vector3::from(camera.get_position());
-    let forward = Vector3::from(camera.calculate_direction_vector());
-    let target = if forward.y.abs() > 1e-3 {
-        let t = -pos.y / forward.y;
-        if t > 0.0 { pos + forward * t } else { pos }
-    } else {
-        pos
-    };
     let snap = MINOR_STEP as f32;
-    let cx = (target.x / snap).round() as i32 * MINOR_STEP;
-    let cz = (target.z / snap).round() as i32 * MINOR_STEP;
+    let cx = (pos.x / snap).round() as i32 * MINOR_STEP;
+    let cz = (pos.z / snap).round() as i32 * MINOR_STEP;
     (cx, cz)
 }
 
