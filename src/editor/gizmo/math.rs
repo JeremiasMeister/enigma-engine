@@ -63,6 +63,62 @@ pub fn unproject(camera: &Camera, screen_pos: Pos2, rect: Rect) -> (Vector3<f32>
     (origin, dir)
 }
 
+/// Closest point on the infinite line `line_origin + t * line_dir` to the ray
+/// `ray_origin + s * ray_dir`. Both directions must be unit length.
+pub fn closest_point_on_line_to_ray(
+    line_origin: Vector3<f32>, line_dir: Vector3<f32>,
+    ray_origin: Vector3<f32>, ray_dir: Vector3<f32>,
+) -> Vector3<f32> {
+    let w0 = line_origin - ray_origin;
+    let a = line_dir.dot(&line_dir);
+    let b = line_dir.dot(&ray_dir);
+    let c = ray_dir.dot(&ray_dir);
+    let d = line_dir.dot(&w0);
+    let e = ray_dir.dot(&w0);
+    let denom = a * c - b * b;
+    let t = if denom.abs() < 1e-6 {
+        // Lines are parallel: project ray_origin onto the line so the result
+        // is the nearest point on the line to the ray origin (assumes line_dir
+        // is unit length, which is the documented precondition).
+        (ray_origin - line_origin).dot(&line_dir)
+    } else {
+        (b * e - c * d) / denom
+    };
+    line_origin + line_dir * t
+}
+
+/// Intersect a ray with a plane. Returns `None` if the ray is parallel to the plane.
+pub fn ray_plane_intersect(
+    ray_origin: Vector3<f32>, ray_dir: Vector3<f32>,
+    plane_point: Vector3<f32>, plane_normal: Vector3<f32>,
+) -> Option<Vector3<f32>> {
+    let denom = plane_normal.dot(&ray_dir);
+    if denom.abs() < 1e-6 {
+        return None;
+    }
+    let t = (plane_point - ray_origin).dot(&plane_normal) / denom;
+    Some(ray_origin + ray_dir * t)
+}
+
+/// 2D distance from point `p` to the segment between `a` and `b`.
+pub fn distance_point_to_segment_2d(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = b - a;
+    let len_sq = ab.x * ab.x + ab.y * ab.y;
+    if len_sq < 1e-6 {
+        return (p - a).length();
+    }
+    let t = (((p - a).x * ab.x) + ((p - a).y * ab.y)) / len_sq;
+    let t = t.clamp(0.0, 1.0);
+    let foot = a + ab * t;
+    (p - foot).length()
+}
+
+/// Round `value` to the nearest multiple of `step`.
+pub fn snap(value: f32, step: f32) -> f32 {
+    if step <= 0.0 { return value; }
+    (value / step).round() * step
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +192,96 @@ mod tests {
         let screen = world_to_screen(&cam, rect, target).expect("point in front");
         assert!(screen.x.is_finite(), "screen.x is not finite: {}", screen.x);
         assert!(screen.y.is_finite(), "screen.y is not finite: {}", screen.y);
+    }
+
+    #[test]
+    fn closest_point_perpendicular_ray_hits_line_origin() {
+        // Line along +X through origin. Ray comes straight down from (0, 1, 0).
+        let p = closest_point_on_line_to_ray(
+            Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, -1.0, 0.0),
+        );
+        assert!((p - Vector3::zeros()).norm() < 1e-4, "p = {:?}", p);
+    }
+
+    #[test]
+    fn ray_plane_intersect_hits_xy_plane() {
+        let p = ray_plane_intersect(
+            Vector3::new(0.0, 0.0, 1.0), Vector3::new(0.0, 0.0, -1.0),
+            Vector3::zeros(), Vector3::new(0.0, 0.0, 1.0),
+        ).expect("ray hits plane");
+        assert!((p - Vector3::zeros()).norm() < 1e-4);
+    }
+
+    #[test]
+    fn ray_plane_intersect_parallel_returns_none() {
+        let r = ray_plane_intersect(
+            Vector3::new(0.0, 0.0, 1.0), Vector3::new(1.0, 0.0, 0.0),
+            Vector3::zeros(), Vector3::new(0.0, 0.0, 1.0),
+        );
+        assert!(r.is_none());
+    }
+
+    #[test]
+    fn distance_point_to_segment_perpendicular_foot_inside() {
+        let d = distance_point_to_segment_2d(
+            Pos2::new(5.0, 3.0),
+            Pos2::new(0.0, 0.0),
+            Pos2::new(10.0, 0.0),
+        );
+        assert!((d - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn distance_point_to_segment_before_a() {
+        let d = distance_point_to_segment_2d(
+            Pos2::new(-3.0, 0.0),
+            Pos2::new(0.0, 0.0),
+            Pos2::new(10.0, 0.0),
+        );
+        assert!((d - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn distance_point_to_segment_after_b() {
+        let d = distance_point_to_segment_2d(
+            Pos2::new(13.0, 0.0),
+            Pos2::new(0.0, 0.0),
+            Pos2::new(10.0, 0.0),
+        );
+        assert!((d - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn snap_translate_step_one() {
+        assert!((snap(2.3, 1.0) - 2.0).abs() < 1e-6);
+        assert!((snap(-2.7, 1.0) - -3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn snap_angle_step_fifteen_degrees() {
+        // 15° = π/12 ≈ 0.2618; 0.5 rad ≈ 1.909 steps → rounds to 2 → result = π/6.
+        let step = std::f32::consts::PI / 12.0;
+        let expected = std::f32::consts::PI / 6.0;
+        assert!((snap(0.5, step) - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn closest_point_parallel_lines_projects_ray_origin() {
+        // Line along +X through (1, 0, 0). Ray along +X starting at (0, 1, 0).
+        // Lines are parallel; expected result is the foot of perpendicular from
+        // ray_origin onto the line: project (0,1,0) - (1,0,0) onto +X → t = -1 →
+        // (1,0,0) + (-1)*(1,0,0) = (0,0,0).
+        let p = closest_point_on_line_to_ray(
+            Vector3::new(1.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0), Vector3::new(1.0, 0.0, 0.0),
+        );
+        assert!((p - Vector3::zeros()).norm() < 1e-4, "p = {:?}", p);
+    }
+
+    #[test]
+    fn snap_zero_or_negative_step_returns_value_unchanged() {
+        assert!((snap(3.7, 0.0) - 3.7).abs() < 1e-6);
+        assert!((snap(3.7, -1.0) - 3.7).abs() < 1e-6);
     }
 }
