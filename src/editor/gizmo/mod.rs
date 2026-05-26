@@ -1,4 +1,5 @@
 pub mod math;
+pub mod toolbar;
 
 use egui::{Context, Rect, Ui};
 use enigma_3d::AppState;
@@ -14,8 +15,8 @@ pub fn handle_input(_ctx: &Context, _rect: Rect, _app_state: &mut AppState) {
 
 /// Paints gizmo handles using the viewport rect's painter.
 /// Called from viewport::draw after the click-to-select branch.
-pub fn draw(_ui: &mut Ui, _rect: Rect, _app_state: &mut AppState) {
-    // Implemented in later tasks.
+pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
+    toolbar::draw(ui.ctx(), rect, app_state);
 }
 
 /// Resolve the current selection to a draggable target's world pivot.
