@@ -28,8 +28,6 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     let mmb_down = ctx.input(|i| i.pointer.middle_down());
     let any_drag = rmb_down || mmb_down;
 
-    // Camera controls only when the pointer started in the viewport.
-    // Use any-drag to keep moving even if cursor leaves the rect.
     if pointer_in_rect || any_drag {
         update_camera(ctx, app_state, pointer_in_rect);
         if any_drag {
@@ -37,17 +35,23 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         }
     }
 
-    // Click-to-select via ray pick. Skip when releasing a drag — primary release
-    // from a deselect drag shouldn't reselect.
+    // Gizmo input runs before click-to-select so it can claim mouse-down/up.
+    crate::editor::gizmo::handle_input(ctx, rect, app_state);
+
     let primary_released = ctx.input(|i| i.pointer.primary_released());
     if primary_released && pointer_in_rect && !any_drag {
         let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) else { return; };
 
-        let drag_active = app_state
-            .get_state_data_value::<EditorRoot>("editor")
-            .map(|r| r.editor.drag.is_some())
-            .unwrap_or(false);
-        if drag_active { return; }
+        let (drag_active, gizmo_consumed) = app_state
+            .get_state_data_value_mut::<EditorRoot>("editor")
+            .map(|r| {
+                (
+                    r.editor.drag.is_some(),
+                    std::mem::replace(&mut r.editor.gizmo.consumed_click_this_frame, false),
+                )
+            })
+            .unwrap_or((false, false));
+        if drag_active || gizmo_consumed { return; }
 
         let Some(camera) = app_state.camera.as_ref() else { return; };
         let (origin, dir) = math::unproject(camera, pos, rect);
@@ -64,6 +68,8 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             root.editor.selection = new_selection;
         }
     }
+
+    crate::editor::gizmo::draw(ui, rect, app_state);
 }
 
 fn update_camera(ctx: &egui::Context, app_state: &mut AppState, pointer_in_rect: bool) {
