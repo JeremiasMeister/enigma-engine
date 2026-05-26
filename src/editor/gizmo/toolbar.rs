@@ -37,6 +37,11 @@ pub fn draw(ctx: &Context, rect: Rect, app_state: &mut AppState) {
                     if ui.button(snap_label).clicked() {
                         g.snap_enabled = !g.snap_enabled;
                     }
+
+                    let grid_label = if g.grid_enabled { "Grid: On" } else { "Grid: Off" };
+                    if ui.button(grid_label).clicked() {
+                        g.grid_enabled = !g.grid_enabled;
+                    }
                 });
             });
         });

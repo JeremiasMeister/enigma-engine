@@ -461,14 +461,28 @@ pub enum Drag {
     },
 }
 
-#[derive(Default)]
 pub struct GizmoState {
     pub mode: GizmoMode,
     pub space: Space,
     pub snap_enabled: bool,
+    pub grid_enabled: bool,
     pub drag: Option<Drag>,
     pub hovered_handle: Option<Handle>,
     pub consumed_click_this_frame: bool,
+}
+
+impl Default for GizmoState {
+    fn default() -> Self {
+        Self {
+            mode: GizmoMode::default(),
+            space: Space::default(),
+            snap_enabled: false,
+            grid_enabled: true,
+            drag: None,
+            hovered_handle: None,
+            consumed_click_this_frame: false,
+        }
+    }
 }
 
 #[cfg(test)]

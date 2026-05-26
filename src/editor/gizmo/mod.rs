@@ -1,5 +1,6 @@
 pub mod math;
 pub mod toolbar;
+pub mod grid;
 pub mod rotate;
 pub mod scale;
 pub mod translate;
@@ -121,6 +122,19 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
 }
 
 pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
+    // Grid renders first, regardless of selection, so it's always available as
+    // a spatial reference. It sits below the gizmo handles since handles draw
+    // after this block.
+    let grid_enabled = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.gizmo.grid_enabled)
+        .unwrap_or(true);
+    if grid_enabled {
+        if let Some(camera) = app_state.camera.as_ref() {
+            let camera = camera.clone();
+            grid::draw(ui, rect, &camera);
+        }
+    }
+
     if let Some(pivot) = selection_pivot(app_state) {
         if let Some(camera) = app_state.camera.as_ref() {
             let camera = camera.clone();
