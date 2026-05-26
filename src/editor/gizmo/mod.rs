@@ -1,6 +1,7 @@
 pub mod math;
 pub mod toolbar;
 pub mod rotate;
+pub mod scale;
 pub mod translate;
 
 use egui::{Context, Pos2, Rect, Ui};
@@ -66,6 +67,7 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
             .map(crate::editor::state::Handle::Axis),
         GizmoMode::Rotate if target_full => rotate::hit_test(cursor, pivot, size, space, rotation, &camera, rect)
             .map(crate::editor::state::Handle::Axis),
+        GizmoMode::Scale if target_full => scale::hit_test(cursor, pivot, size, rotation, &camera, rect),
         _ => None,
     };
 
@@ -75,10 +77,15 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
 
     let pressed = ctx.input(|i| i.pointer.primary_pressed());
     if pressed {
-        if let Some(crate::editor::state::Handle::Axis(axis)) = hovered {
-            let drag = match mode {
-                GizmoMode::Translate => Some(translate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect)),
-                GizmoMode::Rotate => rotate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect),
+        if let Some(handle) = hovered {
+            let start_scale = selection_scale(app_state).unwrap_or(Vector3::new(1.0, 1.0, 1.0));
+            let drag = match (mode, handle) {
+                (GizmoMode::Translate, crate::editor::state::Handle::Axis(axis)) =>
+                    Some(translate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect)),
+                (GizmoMode::Rotate, crate::editor::state::Handle::Axis(axis)) =>
+                    rotate::begin_drag(axis, cursor, pivot, space, rotation, &camera, rect),
+                (GizmoMode::Scale, h) =>
+                    scale::begin_drag(h, cursor, pivot, start_scale, &camera, rect),
                 _ => None,
             };
             if let Some(drag) = drag {
@@ -95,7 +102,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
     if let Some(pivot) = selection_pivot(app_state) {
         if let Some(camera) = app_state.camera.as_ref() {
             let camera = camera.clone();
-            let (mode, space, hovered_axis, dragging_axis) = {
+            let (mode, space, hovered_handle, hovered_axis, dragging_axis) = {
                 let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") else {
                     toolbar::draw(ui.ctx(), rect, app_state);
                     return;
@@ -105,13 +112,15 @@ pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
                     Some(Drag::Rotate { axis, .. }) => Some(*axis),
                     _ => None,
                 };
-                let hover_axis = match root.editor.gizmo.hovered_handle {
+                let hover_handle = root.editor.gizmo.hovered_handle;
+                let hover_axis = match hover_handle {
                     Some(crate::editor::state::Handle::Axis(a)) => Some(a),
                     _ => None,
                 };
                 (
                     root.editor.gizmo.mode,
                     root.editor.gizmo.space,
+                    hover_handle,
                     hover_axis,
                     drag_axis,
                 )
@@ -140,6 +149,17 @@ pub fn draw(ui: &mut Ui, rect: Rect, app_state: &mut AppState) {
             if show_rotate {
                 rotate::draw(ui, rect, pivot, size, space, rotation, &camera,
                     hovered_axis, dragging_axis);
+            }
+
+            let show_scale = matches!(mode, GizmoMode::Scale) && target_full;
+            if show_scale {
+                let dragging_handle = match &app_state.get_state_data_value::<EditorRoot>("editor")
+                    .and_then(|r| r.editor.gizmo.drag.as_ref())
+                {
+                    Some(Drag::Scale { handle, .. }) => Some(*handle),
+                    _ => None,
+                };
+                scale::draw(ui, rect, pivot, size, rotation, &camera, hovered_handle, dragging_handle);
             }
         }
     }
@@ -196,7 +216,8 @@ fn update_active_drag(
                 DragSnapshot::Translate(*axis, *start_pos, *start_on_axis),
             Drag::Rotate { axis, start_quat, start_dir } =>
                 DragSnapshot::Rotate(*axis, *start_quat, *start_dir),
-            Drag::Scale { .. } => DragSnapshot::Other,
+            Drag::Scale { handle, start_scale, start_pivot_screen, start_distance, .. } =>
+                DragSnapshot::Scale(*handle, *start_scale, *start_pivot_screen, *start_distance),
         }));
     let Some(snap_data) = drag_snapshot else { return; };
     match snap_data {
@@ -212,14 +233,19 @@ fn update_active_drag(
             );
             apply_rotation(app_state, new_rot);
         }
-        DragSnapshot::Other => {}
+        DragSnapshot::Scale(handle, start_scale, start_pivot_screen, start_distance) => {
+            let new_scale = scale::update_drag(
+                handle, start_scale, start_pivot_screen, start_distance, cursor, snap,
+            );
+            apply_scale(app_state, new_scale);
+        }
     }
 }
 
 enum DragSnapshot {
     Translate(Axis, Vector3<f32>, Vector3<f32>),
     Rotate(Axis, UnitQuaternion<f32>, Vector3<f32>),
-    Other,
+    Scale(crate::editor::state::Handle, Vector3<f32>, Pos2, f32),
 }
 
 fn apply_position(app_state: &mut AppState, new_pos: Vector3<f32>) {
@@ -262,6 +288,30 @@ fn apply_rotation(app_state: &mut AppState, new_rot: Vector3<f32>) {
     if let Selection::SceneObject(uuid) = selection {
         if let Some(o) = app_state.objects.iter_mut().find(|o| o.get_unique_id() == uuid) {
             o.transform.rotation = new_rot;
+        }
+    }
+    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        root.editor.dirty = true;
+    }
+}
+
+fn selection_scale(app_state: &AppState) -> Option<Vector3<f32>> {
+    let root = app_state.get_state_data_value::<EditorRoot>("editor")?;
+    if let Selection::SceneObject(uuid) = &root.editor.selection {
+        return app_state.objects.iter()
+            .find(|o| o.get_unique_id() == *uuid)
+            .map(|o| o.transform.scale);
+    }
+    None
+}
+
+fn apply_scale(app_state: &mut AppState, new_scale: Vector3<f32>) {
+    let selection = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.selection.clone());
+    let Some(selection) = selection else { return; };
+    if let Selection::SceneObject(uuid) = selection {
+        if let Some(o) = app_state.objects.iter_mut().find(|o| o.get_unique_id() == uuid) {
+            o.transform.scale = new_scale;
         }
     }
     if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
