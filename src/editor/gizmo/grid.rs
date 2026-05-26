@@ -78,7 +78,6 @@ fn draw_world_line(
     b_world: Vector3<f32>,
     color: Color32,
 ) {
-    let Some(a) = math::world_to_screen(camera, rect, a_world) else { return; };
-    let Some(b) = math::world_to_screen(camera, rect, b_world) else { return; };
+    let Some((a, b)) = math::world_segment_to_screen(camera, rect, a_world, b_world) else { return; };
     painter.line_segment([a, b], Stroke::new(1.0, color));
 }

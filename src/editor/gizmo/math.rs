@@ -45,6 +45,38 @@ pub fn world_to_screen(camera: &Camera, rect: Rect, world: Vector3<f32>) -> Opti
     Some(Pos2::new(screen_x, screen_y))
 }
 
+/// Project a world-space line segment to screen-space, clipping to the
+/// camera's near plane so that segments with one endpoint behind the camera
+/// still render their visible portion. Returns `None` if both endpoints are
+/// behind the near plane.
+pub fn world_segment_to_screen(
+    camera: &Camera,
+    rect: Rect,
+    a: Vector3<f32>,
+    b: Vector3<f32>,
+) -> Option<(Pos2, Pos2)> {
+    const NEAR: f32 = 0.05;
+    let cam_pos = Vector3::from(camera.get_position());
+    let forward = Vector3::from(camera.calculate_direction_vector());
+    let za = (a - cam_pos).dot(&forward);
+    let zb = (b - cam_pos).dot(&forward);
+    if za < NEAR && zb < NEAR {
+        return None;
+    }
+    let (a_clipped, b_clipped) = if za >= NEAR && zb >= NEAR {
+        (a, b)
+    } else if za < NEAR {
+        let t = (NEAR - za) / (zb - za);
+        (a + (b - a) * t, b)
+    } else {
+        let t = (NEAR - zb) / (za - zb);
+        (a, b + (a - b) * t)
+    };
+    let a_s = world_to_screen(camera, rect, a_clipped)?;
+    let b_s = world_to_screen(camera, rect, b_clipped)?;
+    Some((a_s, b_s))
+}
+
 /// Convert a screen-space cursor position to a world-space ray.
 /// Returns `(origin, direction)` with `direction` normalized.
 pub fn unproject(camera: &Camera, screen_pos: Pos2, rect: Rect) -> (Vector3<f32>, Vector3<f32>) {
