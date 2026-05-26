@@ -17,6 +17,28 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
     }
 
     let rmb = ctx.input(|i| i.pointer.secondary_down());
+
+    // Hotkeys — only when the pointer is in the viewport and RMB isn't held
+    // (so the existing camera-fly Q/W/E keybinds still take precedence).
+    let pointer = ctx.input(|i| i.pointer.interact_pos());
+    let in_rect = pointer.map(|p| rect.contains(p)).unwrap_or(false);
+    if in_rect && !rmb {
+        let (q, w, e, r) = ctx.input(|i| (
+            i.key_pressed(egui::Key::Q),
+            i.key_pressed(egui::Key::W),
+            i.key_pressed(egui::Key::E),
+            i.key_pressed(egui::Key::R),
+        ));
+        if q || w || e || r {
+            if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                if q { root.editor.gizmo.mode = GizmoMode::None; }
+                if w { root.editor.gizmo.mode = GizmoMode::Translate; }
+                if e { root.editor.gizmo.mode = GizmoMode::Rotate; }
+                if r { root.editor.gizmo.mode = GizmoMode::Scale; }
+            }
+        }
+    }
+
     if rmb { return; } // RMB-fly suppresses gizmo input.
 
     let Some(cursor) = ctx.input(|i| i.pointer.interact_pos()) else { return; };
