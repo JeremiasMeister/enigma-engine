@@ -2,6 +2,7 @@ pub mod state;
 pub mod actions;
 pub mod panels;
 pub mod inspector;
+pub mod gizmo;
 
 use std::collections::HashMap;
 
