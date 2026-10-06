@@ -22,7 +22,7 @@ pub fn handle_input(ctx: &Context, rect: Rect, app_state: &mut AppState) {
     // (so the existing camera-fly Q/W/E keybinds still take precedence).
     let pointer = ctx.input(|i| i.pointer.interact_pos());
     let in_rect = pointer.map(|p| rect.contains(p)).unwrap_or(false);
-    if in_rect && !rmb {
+    if in_rect && !rmb && !ctx.wants_keyboard_input() {
         let (q, w, e, r) = ctx.input(|i| (
             i.key_pressed(egui::Key::Q),
             i.key_pressed(egui::Key::W),

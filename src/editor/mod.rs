@@ -3,6 +3,8 @@ pub mod actions;
 pub mod panels;
 pub mod inspector;
 pub mod gizmo;
+pub mod theme;
+pub mod widgets;
 
 use std::collections::HashMap;
 
@@ -12,7 +14,7 @@ use enigma_3d::AppState;
 use crate::editor::state::{EditorRoot, Modal, PendingDelete};
 
 pub fn draw(ctx: &Context, app_state: &mut AppState) {
-    set_style(ctx);
+    theme::apply(ctx);
     crate::editor::actions::poll_job(app_state);
     crate::project::poll_project_load(app_state);
     crate::project::poll_save_job(app_state);
@@ -33,13 +35,18 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 
-    egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+    egui::TopBottomPanel::top("toolbar").frame(theme::panel_frame()).show(ctx, |ui| {
         panels::toolbar::draw(ui, app_state);
     });
 
+    egui::TopBottomPanel::bottom("status")
+        .frame(egui::Frame::none().fill(theme::BACKGROUND).inner_margin(egui::Margin::symmetric(12.0, 5.0)))
+        .show(ctx, |ui| panels::toolbar::status(ui, app_state));
+
     egui::SidePanel::left("hierarchy")
-        .default_width(220.0)
-        .min_width(160.0)
+        .default_width(230.0)
+        .min_width(180.0)
+        .frame(theme::panel_frame())
         .resizable(true)
         .show(ctx, |ui| {
             egui::ScrollArea::vertical()
@@ -48,8 +55,9 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         });
 
     egui::SidePanel::right("inspector")
-        .default_width(320.0)
-        .min_width(240.0)
+        .default_width(310.0)
+        .min_width(280.0)
+        .frame(theme::panel_frame())
         .resizable(true)
         .show(ctx, |ui| {
             egui::ScrollArea::vertical()
@@ -60,6 +68,7 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     egui::TopBottomPanel::bottom("resource_browser")
         .default_height(220.0)
         .min_height(80.0)
+        .frame(theme::panel_frame())
         .resizable(true)
         .show(ctx, |ui| {
             panels::resource_browser::draw(ui, app_state);
@@ -826,12 +835,4 @@ fn reconcile_materials(app_state: &mut AppState) {
     if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         r.editor.material_cache = cache;
     }
-}
-
-fn set_style(ctx: &Context) {
-    let mut style = (*ctx.style()).clone();
-    style.visuals.window_shadow.extrusion = 0.0;
-    style.visuals.window_shadow.color = egui::Color32::TRANSPARENT;
-    style.visuals.window_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
-    ctx.set_style(style);
 }

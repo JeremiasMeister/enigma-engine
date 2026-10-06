@@ -1,3 +1,4 @@
+use crate::editor::widgets;
 use egui::Ui;
 use enigma_3d::AppState;
 use uuid::Uuid;
@@ -12,12 +13,18 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         .unwrap_or(false);
 
     if !project_loaded {
-        ui.label("No project loaded");
+        crate::editor::theme::panel_heading(ui, "Hierarchy", "Your scene at a glance");
+        ui.label("Create or open a project from the File menu.");
         return;
     }
 
-    ui.heading("Hierarchy");
-    ui.separator();
+    crate::editor::theme::panel_heading(ui, "Hierarchy", "Select to inspect · Double-click to rename");
+    let query = if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        widgets::search_field(ui, &mut root.editor.hierarchy_search, "Search scene…");
+        root.editor.hierarchy_search.clone()
+    } else {
+        String::new()
+    };
 
     let object_rows: Vec<(Uuid, String)> = app_state.objects.iter()
         .map(|o| (o.get_unique_id(), o.name.clone()))
@@ -57,20 +64,13 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 if ui.button("Empty").clicked() { spawn_object = Some(ObjectTemplate::Empty); ui.close_menu(); }
                 if ui.button("Cube").clicked() { spawn_object = Some(ObjectTemplate::Cube); ui.close_menu(); }
                 if ui.button("Sphere").clicked() { spawn_object = Some(ObjectTemplate::Sphere); ui.close_menu(); }
-                ui.menu_button("From Model…", |ui| {
-                    if model_rows.is_empty() {
-                        ui.label("(import a model first)");
-                    } else {
-                        for (uuid, name) in &model_rows {
-                            if ui.button(name).clicked() {
-                                spawn_model = Some(*uuid);
-                                ui.close_menu();
-                            }
-                        }
-                    }
-                });
+                if let Some(uuid) = widgets::search_menu(ui, "From model…", &model_rows) {
+                    spawn_model = Some(uuid);
+                    ui.close_menu();
+                }
             });
             for (uuid, name) in &object_rows {
+                if !widgets::matches_search(name, &query) { continue; }
                 let selected = matches!(current_selection, Selection::SceneObject(s) if s == *uuid);
                 let renaming_this = matches!(&renaming, Some(RenameTarget::SceneObject { uuid: u, .. }) if u == uuid);
                 ui.horizontal(|ui| {
@@ -121,6 +121,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 }
             });
             for (idx, name) in &light_rows {
+                if !widgets::matches_search(name, &query) { continue; }
                 let selected = matches!(current_selection, Selection::Light(s) if s == *idx);
                 ui.horizontal(|ui| {
                     if ui.selectable_label(selected, name).clicked() {
@@ -133,27 +134,30 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             }
             // Always render the ambient slot — present if Some, "+ Add" inline if None.
             // This avoids a one-frame delay before users see the row after spawning.
-            ui.horizontal(|ui| {
-                if has_ambient {
-                    let selected = matches!(current_selection, Selection::AmbientLight);
-                    if ui.selectable_label(selected, "Ambient").clicked() {
-                        new_selection = Some(Selection::AmbientLight);
+            if widgets::matches_search("Ambient", &query) {
+                ui.horizontal(|ui| {
+                    if has_ambient {
+                        let selected = matches!(current_selection, Selection::AmbientLight);
+                        if ui.selectable_label(selected, "Ambient").clicked() {
+                            new_selection = Some(Selection::AmbientLight);
+                        }
+                        if ui.small_button("×").on_hover_text("Delete ambient light").clicked() {
+                            delete_request = Some(PendingDelete::AmbientLight);
+                        }
+                    } else {
+                        ui.weak("Ambient (none)");
+                        if ui.small_button("+ Add").clicked() {
+                            spawn_light = Some(LightTemplate::Ambient);
+                        }
                     }
-                    if ui.small_button("×").on_hover_text("Delete ambient light").clicked() {
-                        delete_request = Some(PendingDelete::AmbientLight);
-                    }
-                } else {
-                    ui.weak("Ambient (none)");
-                    if ui.small_button("+ Add").clicked() {
-                        spawn_light = Some(LightTemplate::Ambient);
-                    }
-                }
-            });
+                });
+            }
         });
 
     egui::CollapsingHeader::new("Camera")
         .default_open(true)
         .show(ui, |ui| {
+            if !widgets::matches_search("Camera", &query) { return; }
             if has_camera {
                 let selected = matches!(current_selection, Selection::Camera);
                 if ui.selectable_label(selected, "Camera").clicked() {
@@ -181,19 +185,10 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     egui::CollapsingHeader::new(format!("Particles ({})", particle_instances.len()))
         .default_open(true)
         .show(ui, |ui| {
-            ui.menu_button("+ Add", |ui| {
-                if particle_defs.is_empty() {
-                    ui.label("(create a particle system first)");
-                } else {
-                    for (uuid, name) in &particle_defs {
-                        if ui.button(name).clicked() {
-                            spawn_instance_def = Some(*uuid);
-                            ui.close_menu();
-                        }
-                    }
-                }
-            });
+            spawn_instance_def = widgets::search_menu(ui, "+ Add particle", &particle_defs);
+
             for (uuid, name) in &particle_instances {
+                if !widgets::matches_search(name, &query) { continue; }
                 let selected = matches!(current_selection, Selection::ParticleInstance(s) if s == *uuid);
                 ui.horizontal(|ui| {
                     if ui.selectable_label(selected, name).clicked() {
@@ -212,7 +207,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         .and_then(|p| p.scenes.get(p.active_scene_index))
         .map(|s| s.terrain.is_some())
         .unwrap_or(false);
-    {
+    if widgets::matches_search("Terrain", &query) {
         let selected = matches!(current_selection, Selection::Terrain);
         let label = if has_terrain { "Terrain" } else { "Terrain (none)" };
         if ui.selectable_label(selected, label).clicked() {
@@ -221,7 +216,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     }
 
     let delete_key = ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
-    if delete_key && renaming.is_none() {
+    if delete_key && renaming.is_none() && !ui.ctx().wants_keyboard_input() {
         match &current_selection {
             Selection::SceneObject(u) => delete_request = Some(PendingDelete::SceneObject(*u)),
             Selection::Light(i) => delete_request = Some(PendingDelete::Light(*i)),

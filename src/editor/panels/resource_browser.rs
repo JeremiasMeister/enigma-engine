@@ -8,6 +8,7 @@ use crate::editor::state::{
     Selection,
 };
 use crate::project;
+use crate::editor::widgets;
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     let (project_loaded, current_tab) = {
@@ -16,12 +17,15 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     };
 
     if !project_loaded {
-        ui.label("No project loaded");
+        crate::editor::theme::panel_heading(ui, "Assets", "Models, materials, and everything in your game");
+        ui.label("Open a project to import assets and build your scene.");
         return;
     }
 
     let mut new_tab: Option<ResourceTab> = None;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Assets").strong().color(crate::editor::theme::TEXT));
+        ui.separator();
         for tab in [
             ResourceTab::Models, ResourceTab::Textures, ResourceTab::Shaders,
             ResourceTab::Materials, ResourceTab::Particles, ResourceTab::Scenes,
@@ -33,6 +37,10 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         }
     });
     ui.separator();
+
+    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        widgets::search_field(ui, &mut root.editor.asset_search, "Search assets in this category…");
+    }
 
     if let Some(t) = new_tab {
         if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
@@ -75,7 +83,12 @@ fn list_kind(ui: &mut Ui, app_state: &mut AppState, kind: ResourceKind) {
     let mut rename_commit: Option<RenameTarget> = None;
     let mut rename_cancel = false;
 
+    let query = asset_query(app_state);
+    if !rows.iter().any(|(_, name)| widgets::matches_search(name, &query)) {
+        ui.weak(if query.trim().is_empty() { "No assets yet. Import one to get started." } else { "No matching assets. Try a different search." });
+    }
     for (uuid, name) in &rows {
+        if !widgets::matches_search(name, &query) { continue; }
         let selected = matches!(&current_sel, Selection::Resource(u) if u == uuid);
         let renaming_this = matches!(&renaming, Some(RenameTarget::Resource { uuid: u, .. }) if u == uuid);
         ui.horizontal(|ui| {
@@ -147,7 +160,12 @@ fn list_materials(ui: &mut Ui, app_state: &mut AppState) {
     let mut rename_commit: Option<RenameTarget> = None;
     let mut rename_cancel = false;
 
+    let query = asset_query(app_state);
+    if !rows.iter().any(|(_, name)| widgets::matches_search(name, &query)) {
+        ui.weak(if query.trim().is_empty() { "Create your first asset using the button above." } else { "No matching assets. Try a different search." });
+    }
     for (uuid, name) in &rows {
+        if !widgets::matches_search(name, &query) { continue; }
         let selected = matches!(&current_sel, Selection::Material(u) if u == uuid);
         let renaming_this = matches!(&renaming, Some(RenameTarget::Material { uuid: u, .. }) if u == uuid);
         ui.horizontal(|ui| {
@@ -215,7 +233,12 @@ fn list_particles(ui: &mut Ui, app_state: &mut AppState) {
     let mut rename_commit: Option<RenameTarget> = None;
     let mut rename_cancel = false;
 
+    let query = asset_query(app_state);
+    if !rows.iter().any(|(_, name)| widgets::matches_search(name, &query)) {
+        ui.weak(if query.trim().is_empty() { "Create your first asset using the button above." } else { "No matching assets. Try a different search." });
+    }
     for (uuid, name) in &rows {
+        if !widgets::matches_search(name, &query) { continue; }
         let selected = matches!(&current_sel, Selection::Particle(u) if u == uuid);
         let renaming_this = matches!(&renaming, Some(RenameTarget::Particle { uuid: u, .. }) if u == uuid);
         ui.horizontal(|ui| {
@@ -281,7 +304,12 @@ fn list_scenes(ui: &mut Ui, app_state: &mut AppState) {
     let mut rename_commit: Option<RenameTarget> = None;
     let mut rename_cancel = false;
 
+    let query = asset_query(app_state);
+    if !scenes.iter().any(|name| widgets::matches_search(name, &query)) {
+        ui.weak("No matching scenes. Try a different search.");
+    }
     for (idx, name) in scenes.iter().enumerate() {
+        if !widgets::matches_search(name, &query) { continue; }
         let renaming_this = matches!(&renaming, Some(RenameTarget::Scene { index: i, .. }) if *i == idx);
         ui.horizontal(|ui| {
             if renaming_this {
@@ -433,4 +461,9 @@ fn pick_file(exts: &[&str]) -> Option<String> {
         dialog = dialog.add_filter("file", exts);
     }
     dialog.pick_file().map(|p| p.to_string_lossy().into_owned())
+}
+
+fn asset_query(app_state: &AppState) -> String {
+    app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|root| root.editor.asset_search.clone()).unwrap_or_default()
 }

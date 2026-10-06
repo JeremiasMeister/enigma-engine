@@ -3,6 +3,7 @@ use enigma_3d::AppState;
 use uuid::Uuid;
 
 use crate::editor::state::EditorRoot;
+use crate::editor::widgets;
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
     egui::CollapsingHeader::new("Mesh & Material").default_open(true).show(ui, |ui| {
@@ -37,26 +38,10 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
         let mut updates: Vec<(usize, Option<Uuid>)> = Vec::new();
 
         for shape_idx in 0..shape_count {
-            let current = per_shape.get(shape_idx).copied().unwrap_or(None);
-            let current_label = current
-                .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-                .unwrap_or_else(|| "(none)".to_string());
-            ui.horizontal(|ui| {
-                ui.label(format!("Shape {shape_idx}"));
-                egui::ComboBox::from_id_source(format!("material_assign_{shape_idx}"))
-                    .selected_text(current_label)
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_label(current.is_none(), "(none)").clicked() {
-                            updates.push((shape_idx, None));
-                        }
-                        for (uuid, name) in &materials {
-                            let selected = current == Some(*uuid);
-                            if ui.selectable_label(selected, name).clicked() {
-                                updates.push((shape_idx, Some(*uuid)));
-                            }
-                        }
-                    });
-            });
+            let mut current = per_shape.get(shape_idx).copied().unwrap_or(None);
+            if widgets::asset_picker(ui, &format!("Shape {shape_idx}"), &mut current, &materials, "None") {
+                updates.push((shape_idx, current));
+            }
         }
 
         if !updates.is_empty() {

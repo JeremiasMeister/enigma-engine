@@ -1,6 +1,7 @@
 use egui::Ui;
 use enigma_3d::AppState;
 use uuid::Uuid;
+use crate::editor::widgets;
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
     let Some(obj_idx) = app_state.objects.iter().position(|o| o.get_unique_id() == object_uuid) else {
@@ -26,26 +27,15 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, object_uuid: Uuid) {
             .map(|s| s.looping)
             .unwrap_or(false);
 
-        let label = current_name
-            .as_ref()
-            .filter(|n| clip_names.iter().any(|c| c == n.as_str()))
-            .cloned()
-            .unwrap_or_else(|| "<None>".to_string());
-
-        let mut picked: Option<Option<String>> = None;
-        egui::ComboBox::from_label("Clip")
-            .selected_text(label)
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(current_name.is_none(), "<None>").clicked() {
-                    picked = Some(None);
-                }
-                for name in &clip_names {
-                    let selected = current_name.as_deref() == Some(name.as_str());
-                    if ui.selectable_label(selected, name).clicked() {
-                        picked = Some(Some(name.clone()));
-                    }
-                }
-            });
+        ui.label("Clip");
+        let mut options = vec![(None, "None".to_owned())];
+        options.extend(clip_names.iter().map(|name| (Some(name.clone()), name.clone())));
+        let mut choice = current_name.clone();
+        let picked = if widgets::searchable_combo(ui, "animation_clip", &mut choice, &options) {
+            Some(choice)
+        } else {
+            None
+        };
 
         if let Some(choice) = picked {
             let obj_mut = &mut app_state.objects[obj_idx];

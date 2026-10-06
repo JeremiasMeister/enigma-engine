@@ -3,6 +3,7 @@ use enigma_3d::AppState;
 use uuid::Uuid;
 
 use crate::editor::state::{EditorRoot, ResourceKind, ShaderChoice};
+use crate::editor::{theme, widgets};
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
     let (mut def_clone, textures) = {
@@ -42,28 +43,14 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
             ShaderChoice::Unlit => "Unlit",
             ShaderChoice::Custom { .. } => "Custom",
         };
-        egui::ComboBox::from_id_source("material_shader")
-            .selected_text(label)
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(matches!(def_clone.shader, ShaderChoice::PbrLit), "PBR Lit").clicked() {
-                    def_clone.shader = ShaderChoice::PbrLit;
-                    changed = true;
-                }
-                if ui.selectable_label(matches!(def_clone.shader, ShaderChoice::Unlit), "Unlit").clicked() {
-                    def_clone.shader = ShaderChoice::Unlit;
-                    changed = true;
-                }
-                if ui.selectable_label(matches!(def_clone.shader, ShaderChoice::Custom { .. }), "Custom").clicked() {
-                    if !matches!(def_clone.shader, ShaderChoice::Custom { .. }) {
-                        def_clone.shader = ShaderChoice::Custom {
-                            vertex: None,
-                            fragment: None,
-                            geometry: None,
-                        };
-                        changed = true;
-                    }
-                }
-            });
+        if let Some(choice) = widgets::enum_picker(ui, "material_shader", label, &["PBR Lit", "Unlit", "Custom"]) {
+            def_clone.shader = match choice {
+                "PBR Lit" => ShaderChoice::PbrLit,
+                "Unlit" => ShaderChoice::Unlit,
+                _ => ShaderChoice::Custom { vertex: None, fragment: None, geometry: None },
+            };
+            changed = true;
+        }
     });
 
     if let ShaderChoice::Custom { vertex, fragment, geometry } = &mut def_clone.shader {
@@ -74,7 +61,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
     }
 
     ui.separator();
-    ui.label("Texture slots");
+    theme::section(ui, "Texture slots");
     changed |= texture_slot(ui, "Albedo", &mut def_clone.albedo, &textures);
     if matches!(def_clone.shader, ShaderChoice::PbrLit) {
         changed |= texture_slot(ui, "Normal", &mut def_clone.normal, &textures);
@@ -84,7 +71,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
     changed |= texture_slot(ui, "Emissive", &mut def_clone.emissive, &textures);
 
     ui.separator();
-    ui.label("UV Tiling / Offset");
+    theme::section(ui, "Texture coordinates");
     ui.horizontal(|ui| {
         ui.label("Tiling");
         changed |= ui.add(DragValue::new(&mut def_clone.uv_tiling[0]).speed(0.05).prefix("u ")).changed();
@@ -97,18 +84,18 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, material_uuid: Uuid) {
     });
 
     ui.separator();
-    ui.label("Parameters");
+    theme::section(ui, "Parameters");
     ui.horizontal(|ui| {
         ui.label("Color");
         changed |= ui.color_edit_button_rgb(&mut def_clone.color).changed();
     });
-    changed |= ui.add(DragValue::new(&mut def_clone.emissive_strength).speed(0.05).prefix("emissive ")).changed();
-    changed |= ui.add(DragValue::new(&mut def_clone.roughness_strength).speed(0.01).prefix("roughness ")).changed();
-    changed |= ui.add(DragValue::new(&mut def_clone.metallic_strength).speed(0.01).prefix("metallic ")).changed();
-    changed |= ui.add(DragValue::new(&mut def_clone.normal_strength).speed(0.01).prefix("normal ")).changed();
+    changed |= widgets::slider(ui, "Emissive", &mut def_clone.emissive_strength, 0.0..=10.0);
+    changed |= widgets::slider(ui, "Roughness", &mut def_clone.roughness_strength, 0.0..=1.0);
+    changed |= widgets::slider(ui, "Metallic", &mut def_clone.metallic_strength, 0.0..=1.0);
+    changed |= widgets::slider(ui, "Normal strength", &mut def_clone.normal_strength, 0.0..=2.0);
     changed |= ui.checkbox(&mut def_clone.transparent, "Transparent").changed();
     if def_clone.transparent {
-        changed |= ui.add(DragValue::new(&mut def_clone.transparency_strength).speed(0.01).prefix("transparency ")).changed();
+        changed |= widgets::slider(ui, "Transparency", &mut def_clone.transparency_strength, 0.0..=1.0);
     }
 
     if changed {
@@ -129,29 +116,7 @@ fn shader_slot(
     slot: &mut Option<Uuid>,
     shaders: &[(Uuid, String)],
 ) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(label);
-        let current = slot
-            .and_then(|u| shaders.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-            .unwrap_or_else(|| "(default)".into());
-        egui::ComboBox::from_id_source(format!("shader-slot-{label}"))
-            .selected_text(current)
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(slot.is_none(), "(default)").clicked() {
-                    *slot = None;
-                    changed = true;
-                }
-                for (uuid, name) in shaders {
-                    let is = *slot == Some(*uuid);
-                    if ui.selectable_label(is, name).clicked() {
-                        *slot = Some(*uuid);
-                        changed = true;
-                    }
-                }
-            });
-    });
-    changed
+    widgets::asset_picker(ui, label, slot, shaders, "Default shader")
 }
 
 fn texture_slot(
@@ -160,27 +125,5 @@ fn texture_slot(
     slot: &mut Option<Uuid>,
     textures: &[(Uuid, String)],
 ) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(label);
-        let current = slot
-            .and_then(|u| textures.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-            .unwrap_or_else(|| "(none)".into());
-        egui::ComboBox::from_id_source(format!("slot-{label}"))
-            .selected_text(current)
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(slot.is_none(), "(none)").clicked() {
-                    *slot = None;
-                    changed = true;
-                }
-                for (uuid, name) in textures {
-                    let is = *slot == Some(*uuid);
-                    if ui.selectable_label(is, name).clicked() {
-                        *slot = Some(*uuid);
-                        changed = true;
-                    }
-                }
-            });
-    });
-    changed
+    widgets::asset_picker(ui, label, slot, textures, "None")
 }
