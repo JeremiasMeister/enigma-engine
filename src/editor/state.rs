@@ -286,6 +286,8 @@ pub struct EditorState {
     pub drag: Option<DragPayload>,
     pub modal: Option<Modal>,
     pub resource_browser_tab: ResourceTab,
+    pub asset_search: String,
+    pub hierarchy_search: String,
     pub dirty: bool,
     pub renaming: Option<RenameTarget>,
     pub material_cache: HashMap<Uuid, u64>,

@@ -6,6 +6,7 @@ use enigma_3d::particle::{
 use uuid::Uuid;
 
 use crate::editor::state::{EditorRoot, ResourceKind};
+use crate::editor::widgets;
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
     let mut def_clone = {
@@ -40,51 +41,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
         changed |= ui.text_edit_singleline(&mut def_clone.config.name).changed();
     });
 
-    ui.horizontal(|ui| {
-        ui.label("Texture");
-        let current = def_clone.texture
-            .and_then(|u| textures.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-            .unwrap_or_else(|| "(none)".to_string());
-        egui::ComboBox::from_id_source("particle_texture")
-            .selected_text(current)
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(def_clone.texture.is_none(), "(none)").clicked() {
-                    def_clone.texture = None;
-                    changed = true;
-                }
-                for (uuid, name) in &textures {
-                    let selected = def_clone.texture == Some(*uuid);
-                    if ui.selectable_label(selected, name).clicked() {
-                        def_clone.texture = Some(*uuid);
-                        changed = true;
-                    }
-                }
-            });
-    });
+    changed |= widgets::asset_picker(ui, "Texture", &mut def_clone.texture, &textures, "None");
 
     egui::CollapsingHeader::new("Material override (advanced)").default_open(false).show(ui, |ui| {
         ui.weak("Custom material must use a particle shader, or rendering will crash.");
-        ui.horizontal(|ui| {
-            ui.label("Material");
-            let current = def_clone.material
-                .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-                .unwrap_or_else(|| "(use texture above)".to_string());
-            egui::ComboBox::from_id_source("particle_material")
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(def_clone.material.is_none(), "(use texture above)").clicked() {
-                        def_clone.material = None;
-                        changed = true;
-                    }
-                    for (uuid, name) in &materials {
-                        let selected = def_clone.material == Some(*uuid);
-                        if ui.selectable_label(selected, name).clicked() {
-                            def_clone.material = Some(*uuid);
-                            changed = true;
-                        }
-                    }
-                });
-        });
+        changed |= widgets::asset_picker(ui, "Material", &mut def_clone.material, &materials, "Use particle texture");
     });
 
     let cfg = &mut def_clone.config;
@@ -99,10 +60,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
             ui.label("Duration");
             changed |= ui.add(DragValue::new(&mut cfg.duration).speed(0.1)).changed();
         });
-        ui.horizontal(|ui| {
-            ui.label("Emission rate (p/s)");
-            changed |= ui.add(DragValue::new(&mut cfg.emission_rate).speed(0.5)).changed();
-        });
+        changed |= widgets::slider_with(ui, "Emission rate", &mut cfg.emission_rate, 0.0..=1000.0, " /s", true).changed();
         changed |= ui.checkbox(&mut cfg.prewarm, "Prewarm").changed();
     });
 
@@ -141,7 +99,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, uuid: Uuid) {
             changed = true;
         }
         if let Some(d) = cfg.drag.as_mut() {
-            changed |= ui.add(DragValue::new(d).speed(0.01)).changed();
+            changed |= widgets::slider(ui, "Drag strength", d, 0.0..=5.0);
         }
     });
 
@@ -180,31 +138,16 @@ fn emitter_shape_editor(ui: &mut Ui, shape: &mut EmitterShape) -> bool {
         EmitterShape::Cone { .. } => "Cone",
         EmitterShape::Disk { .. } => "Disk",
     };
-    egui::ComboBox::from_id_source("emitter_shape").selected_text(current).show_ui(ui, |ui| {
-        if ui.selectable_label(matches!(shape, EmitterShape::Point), "Point").clicked() {
-            *shape = EmitterShape::Point; changed = true;
-        }
-        if ui.selectable_label(matches!(shape, EmitterShape::Sphere { .. }), "Sphere").clicked() {
-            if !matches!(shape, EmitterShape::Sphere { .. }) {
-                *shape = EmitterShape::Sphere { radius: 0.5 }; changed = true;
-            }
-        }
-        if ui.selectable_label(matches!(shape, EmitterShape::Box { .. }), "Box").clicked() {
-            if !matches!(shape, EmitterShape::Box { .. }) {
-                *shape = EmitterShape::Box { half_extents: [0.5, 0.5, 0.5] }; changed = true;
-            }
-        }
-        if ui.selectable_label(matches!(shape, EmitterShape::Cone { .. }), "Cone").clicked() {
-            if !matches!(shape, EmitterShape::Cone { .. }) {
-                *shape = EmitterShape::Cone { angle: 0.5, height: 1.0 }; changed = true;
-            }
-        }
-        if ui.selectable_label(matches!(shape, EmitterShape::Disk { .. }), "Disk").clicked() {
-            if !matches!(shape, EmitterShape::Disk { .. }) {
-                *shape = EmitterShape::Disk { radius: 0.5 }; changed = true;
-            }
-        }
-    });
+    if let Some(choice) = widgets::enum_picker(ui, "emitter_shape", current, &["Point", "Sphere", "Box", "Cone", "Disk"]) {
+        *shape = match choice {
+            "Sphere" => EmitterShape::Sphere { radius: 0.5 },
+            "Box" => EmitterShape::Box { half_extents: [0.5; 3] },
+            "Cone" => EmitterShape::Cone { angle: 0.5, height: 1.0 },
+            "Disk" => EmitterShape::Disk { radius: 0.5 },
+            _ => EmitterShape::Point,
+        };
+        changed = true;
+    }
 
     match shape {
         EmitterShape::Point => {}
@@ -248,28 +191,15 @@ fn initial_velocity_editor(ui: &mut Ui, v: &mut InitialVelocity) -> bool {
         InitialVelocity::Cone { .. } => "Cone",
         InitialVelocity::Hemisphere { .. } => "Hemisphere",
     };
-    egui::ComboBox::from_id_source("init_velocity").selected_text(current).show_ui(ui, |ui| {
-        if ui.selectable_label(matches!(v, InitialVelocity::Outward { .. }), "Outward").clicked() {
-            if !matches!(v, InitialVelocity::Outward { .. }) {
-                *v = InitialVelocity::Outward { speed: Range::new(1.0, 2.0) }; changed = true;
-            }
-        }
-        if ui.selectable_label(matches!(v, InitialVelocity::Direction { .. }), "Direction").clicked() {
-            if !matches!(v, InitialVelocity::Direction { .. }) {
-                *v = InitialVelocity::Direction { direction: [0.0, 1.0, 0.0], speed: Range::new(1.0, 2.0) }; changed = true;
-            }
-        }
-        if ui.selectable_label(matches!(v, InitialVelocity::Cone { .. }), "Cone").clicked() {
-            if !matches!(v, InitialVelocity::Cone { .. }) {
-                *v = InitialVelocity::Cone { direction: [0.0, 1.0, 0.0], angle: 0.5, speed: Range::new(1.0, 2.0) }; changed = true;
-            }
-        }
-        if ui.selectable_label(matches!(v, InitialVelocity::Hemisphere { .. }), "Hemisphere").clicked() {
-            if !matches!(v, InitialVelocity::Hemisphere { .. }) {
-                *v = InitialVelocity::Hemisphere { normal: [0.0, 1.0, 0.0], speed: Range::new(1.0, 2.0) }; changed = true;
-            }
-        }
-    });
+    if let Some(choice) = widgets::enum_picker(ui, "init_velocity", current, &["Outward", "Direction", "Cone", "Hemisphere"]) {
+        *v = match choice {
+            "Direction" => InitialVelocity::Direction { direction: [0.0, 1.0, 0.0], speed: Range::new(1.0, 2.0) },
+            "Cone" => InitialVelocity::Cone { direction: [0.0, 1.0, 0.0], angle: 0.5, speed: Range::new(1.0, 2.0) },
+            "Hemisphere" => InitialVelocity::Hemisphere { normal: [0.0, 1.0, 0.0], speed: Range::new(1.0, 2.0) },
+            _ => InitialVelocity::Outward { speed: Range::new(1.0, 2.0) },
+        };
+        changed = true;
+    }
 
     match v {
         InitialVelocity::Outward { speed } => {
@@ -320,23 +250,14 @@ fn color_range_editor(ui: &mut Ui, label: &str, c: &mut ColorRange) -> bool {
     };
     ui.horizontal(|ui| {
         ui.label(label);
-        egui::ComboBox::from_id_source("color_range").selected_text(current).show_ui(ui, |ui| {
-            if ui.selectable_label(matches!(c, ColorRange::Single(_)), "Single").clicked() {
-                if !matches!(c, ColorRange::Single(_)) {
-                    *c = ColorRange::Single([1.0, 1.0, 1.0, 1.0]); changed = true;
-                }
-            }
-            if ui.selectable_label(matches!(c, ColorRange::Range { .. }), "Range").clicked() {
-                if !matches!(c, ColorRange::Range { .. }) {
-                    *c = ColorRange::Range { min: [1.0; 4], max: [1.0; 4] }; changed = true;
-                }
-            }
-            if ui.selectable_label(matches!(c, ColorRange::Hdr { .. }), "HDR").clicked() {
-                if !matches!(c, ColorRange::Hdr { .. }) {
-                    *c = ColorRange::Hdr { rgb: [1.0; 3], intensity: 1.0, alpha: 1.0 }; changed = true;
-                }
-            }
-        });
+        if let Some(choice) = widgets::enum_picker(ui, "color_range", current, &["Single", "Range", "HDR"]) {
+            *c = match choice {
+                "Range" => ColorRange::Range { min: [1.0; 4], max: [1.0; 4] },
+                "HDR" => ColorRange::Hdr { rgb: [1.0; 3], intensity: 1.0, alpha: 1.0 },
+                _ => ColorRange::Single([1.0; 4]),
+            };
+            changed = true;
+        }
     });
     match c {
         ColorRange::Single(col) => {
@@ -344,7 +265,7 @@ fn color_range_editor(ui: &mut Ui, label: &str, c: &mut ColorRange) -> bool {
             if ui.color_edit_button_rgb(&mut rgb).changed() {
                 col[0] = rgb[0]; col[1] = rgb[1]; col[2] = rgb[2]; changed = true;
             }
-            changed |= ui.add(DragValue::new(&mut col[3]).speed(0.01).prefix("a ")).changed();
+            changed |= widgets::slider(ui, "Opacity", &mut col[3], 0.0..=1.0);
         }
         ColorRange::Range { min, max } => {
             let mut min_rgb = [min[0], min[1], min[2]];
@@ -366,8 +287,8 @@ fn color_range_editor(ui: &mut Ui, label: &str, c: &mut ColorRange) -> bool {
         }
         ColorRange::Hdr { rgb, intensity, alpha } => {
             changed |= ui.color_edit_button_rgb(rgb).changed();
-            changed |= ui.add(DragValue::new(intensity).speed(0.05).prefix("intensity ")).changed();
-            changed |= ui.add(DragValue::new(alpha).speed(0.01).prefix("a ")).changed();
+            changed |= widgets::slider(ui, "Intensity", intensity, 0.0..=10.0);
+            changed |= widgets::slider(ui, "Opacity", alpha, 0.0..=1.0);
         }
         ColorRange::HdrRange { .. } => {
             ui.label("(HDR Range — edit JSON for now)");
@@ -384,20 +305,13 @@ fn render_style_editor(ui: &mut Ui, r: &mut RenderStyle) -> bool {
     };
     ui.horizontal(|ui| {
         ui.label("Style");
-        egui::ComboBox::from_id_source("render_style").selected_text(current).show_ui(ui, |ui| {
-            if ui.selectable_label(matches!(r, RenderStyle::Sprite { .. }), "Sprite").clicked() {
-                if !matches!(r, RenderStyle::Sprite { .. }) {
-                    *r = RenderStyle::Sprite {
-                        flipbook: None,
-                        blend_mode: BlendMode::Alpha,
-                        soft_particles: false,
-                        soft_fade_distance: 0.0,
-                        velocity_stretch: 0.0,
-                    };
-                    changed = true;
-                }
-            }
-        });
+        if widgets::enum_picker(ui, "render_style", current, &["Sprite"]).is_some() {
+            *r = RenderStyle::Sprite {
+                flipbook: None, blend_mode: BlendMode::Alpha,
+                soft_particles: false, soft_fade_distance: 0.0, velocity_stretch: 0.0,
+            };
+            changed = true;
+        }
     });
 
     if let RenderStyle::Sprite { flipbook, blend_mode, soft_particles, soft_fade_distance, velocity_stretch } = r {
@@ -408,17 +322,14 @@ fn render_style_editor(ui: &mut Ui, r: &mut RenderStyle) -> bool {
         };
         ui.horizontal(|ui| {
             ui.label("Blend");
-            egui::ComboBox::from_id_source("blend_mode").selected_text(blend_label).show_ui(ui, |ui| {
-                if ui.selectable_label(matches!(blend_mode, BlendMode::Additive), "Additive").clicked() {
-                    *blend_mode = BlendMode::Additive; changed = true;
-                }
-                if ui.selectable_label(matches!(blend_mode, BlendMode::Alpha), "Alpha").clicked() {
-                    *blend_mode = BlendMode::Alpha; changed = true;
-                }
-                if ui.selectable_label(matches!(blend_mode, BlendMode::PremultipliedAlpha), "Premultiplied").clicked() {
-                    *blend_mode = BlendMode::PremultipliedAlpha; changed = true;
-                }
-            });
+            if let Some(choice) = widgets::enum_picker(ui, "blend_mode", blend_label, &["Additive", "Alpha", "Premultiplied Alpha"]) {
+                *blend_mode = match choice {
+                    "Additive" => BlendMode::Additive,
+                    "Premultiplied Alpha" => BlendMode::PremultipliedAlpha,
+                    _ => BlendMode::Alpha,
+                };
+                changed = true;
+            }
         });
         changed |= ui.checkbox(soft_particles, "Soft particles").changed();
         if *soft_particles {

@@ -81,7 +81,8 @@ fn update_camera(ctx: &egui::Context, app_state: &mut AppState, pointer_in_rect:
     let shift = ctx.input(|i| i.modifiers.shift);
 
     // Press F to frame selected — requires pointer in viewport.
-    let frame_pressed = pointer_in_rect && ctx.input(|i| i.key_pressed(egui::Key::F));
+    let frame_pressed = pointer_in_rect && !ctx.wants_keyboard_input()
+        && ctx.input(|i| i.key_pressed(egui::Key::F));
 
     let Some(cam) = app_state.camera.as_mut() else { return; };
 

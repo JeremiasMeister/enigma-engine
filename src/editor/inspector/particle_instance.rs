@@ -1,4 +1,5 @@
-use egui::{DragValue, Ui};
+use egui::Ui;
+use crate::editor::widgets;
 use enigma_3d::AppState;
 use uuid::Uuid;
 
@@ -28,29 +29,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState, instance_uuid: Uuid) {
     });
 
     egui::CollapsingHeader::new("Transform").default_open(true).show(ui, |ui| {
-        ui.label("Position");
-        ui.horizontal(|ui| {
-            changed |= ui.add(DragValue::new(&mut instance_clone.position[0]).speed(0.1).prefix("x ")).changed();
-            changed |= ui.add(DragValue::new(&mut instance_clone.position[1]).speed(0.1).prefix("y ")).changed();
-            changed |= ui.add(DragValue::new(&mut instance_clone.position[2]).speed(0.1).prefix("z ")).changed();
-        });
+        changed |= widgets::vector3(ui, "Position", &mut instance_clone.position, 0.1);
     });
 
-    ui.horizontal(|ui| {
-        ui.label("Def");
-        let current = defs.iter().find(|(u, _)| *u == instance_clone.def_uuid)
-            .map(|(_, n)| n.clone())
-            .unwrap_or_else(|| "(missing)".into());
-        egui::ComboBox::from_id_source("particle_inst_def").selected_text(current).show_ui(ui, |ui| {
-            for (uuid, name) in &defs {
-                let sel = instance_clone.def_uuid == *uuid;
-                if ui.selectable_label(sel, name).clicked() {
-                    instance_clone.def_uuid = *uuid;
-                    changed = true;
-                }
-            }
-        });
-    });
+    ui.label("Particle system");
+    changed |= widgets::searchable_combo(ui, "particle_inst_def", &mut instance_clone.def_uuid, &defs);
 
     if changed {
         if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {

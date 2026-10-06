@@ -3,6 +3,7 @@ use enigma_3d::AppState;
 use uuid::Uuid;
 
 use crate::editor::state::{EditorRoot, TerrainDef};
+use crate::editor::widgets;
 
 pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
     let mut def_clone: Option<TerrainDef> = {
@@ -32,11 +33,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             });
 
             egui::CollapsingHeader::new("Position").default_open(true).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    changed |= ui.add(DragValue::new(&mut def.position[0]).speed(0.1).prefix("x ")).changed();
-                    changed |= ui.add(DragValue::new(&mut def.position[1]).speed(0.1).prefix("y ")).changed();
-                    changed |= ui.add(DragValue::new(&mut def.position[2]).speed(0.1).prefix("z ")).changed();
-                });
+                changed |= widgets::vector3(ui, "Position", &mut def.position, 0.1);
             });
 
             egui::CollapsingHeader::new("Size").default_open(true).show(ui, |ui| {
@@ -52,10 +49,10 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             });
 
             egui::CollapsingHeader::new("Noise").default_open(true).show(ui, |ui| {
-                changed |= ui.add(DragValue::new(&mut def.noise_scale).speed(0.005).prefix("scale ")).changed();
-                changed |= ui.add(DragValue::new(&mut def.noise_amplitude).speed(0.05).prefix("amplitude ")).changed();
+                changed |= widgets::slider(ui, "Noise scale", &mut def.noise_scale, 0.001..=0.5);
+                changed |= widgets::slider(ui, "Amplitude", &mut def.noise_amplitude, 0.0..=2.0);
                 changed |= ui.add(DragValue::new(&mut def.noise_octaves).speed(1.0).prefix("octaves ")).changed();
-                changed |= ui.add(DragValue::new(&mut def.noise_persistence).speed(0.05).prefix("persistence ")).changed();
+                changed |= widgets::slider(ui, "Persistence", &mut def.noise_persistence, 0.0..=1.0);
             });
 
             egui::CollapsingHeader::new("Material").default_open(true).show(ui, |ui| {
@@ -64,27 +61,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                     .and_then(|r| r.project.as_ref())
                     .map(|p| p.materials.iter().map(|m| (m.uuid, m.name.clone())).collect())
                     .unwrap_or_default();
-                let current = def.material
-                    .and_then(|u| materials.iter().find(|(uu, _)| *uu == u).map(|(_, n)| n.clone()))
-                    .unwrap_or_else(|| "(vertex colors)".to_string());
-                ui.horizontal(|ui| {
-                    ui.label("Material:");
-                    egui::ComboBox::from_id_source("terrain_material")
-                        .selected_text(current)
-                        .show_ui(ui, |ui| {
-                            if ui.selectable_label(def.material.is_none(), "(vertex colors)").clicked() {
-                                def.material = None;
-                                changed = true;
-                            }
-                            for (uuid, name) in &materials {
-                                let selected = def.material == Some(*uuid);
-                                if ui.selectable_label(selected, name).clicked() {
-                                    def.material = Some(*uuid);
-                                    changed = true;
-                                }
-                            }
-                        });
-                });
+                changed |= widgets::asset_picker(ui, "Material", &mut def.material, &materials, "Vertex colors");
                 ui.weak("when set, the terrain shader samples the material's albedo");
             });
 
@@ -101,9 +78,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                     ui.label("Slope");
                     changed |= ui.color_edit_button_rgb(&mut def.color_slope).changed();
                 });
-                changed |= ui.add(DragValue::new(&mut def.slope_threshold).speed(0.01).prefix("slope threshold ")).changed();
-                changed |= ui.add(DragValue::new(&mut def.height_mid).speed(0.01).prefix("height mid ")).changed();
-                changed |= ui.add(DragValue::new(&mut def.uv_scale).speed(0.5).prefix("uv scale ")).changed();
+                changed |= widgets::slider(ui, "Slope threshold", &mut def.slope_threshold, 0.0..=1.0);
+                changed |= widgets::slider(ui, "Height blend", &mut def.height_mid, 0.0..=1.0);
+                changed |= widgets::slider(ui, "Texture scale", &mut def.uv_scale, 0.1..=50.0);
             });
         }
     }
