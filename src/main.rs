@@ -1,6 +1,7 @@
 mod editor;
 mod project;
 mod resources;
+mod ui_runtime;
 
 use std::sync::Arc;
 use enigma_3d::AppState;

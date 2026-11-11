@@ -22,6 +22,8 @@ pub struct ProjectState {
     pub skybox: Option<Uuid>,
     #[serde(default)]
     pub particle_systems: Vec<ParticleSystemDef>,
+    #[serde(default)]
+    pub ui_screens: Vec<crate::ui_runtime::UiScreen>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -88,6 +90,7 @@ impl ProjectState {
             material_assignments: Vec::new(),
             skybox: None,
             particle_systems: Vec::new(),
+            ui_screens: Vec::new(),
         }
     }
 
@@ -281,6 +284,9 @@ impl EditorRoot {
 
 #[derive(Default)]
 pub struct EditorState {
+    pub workspace: Workspace,
+    pub ui_editor: crate::editor::ui_editor::UiEditorState,
+    pub ui_revision: u64,
     pub selection: Selection,
     pub viewport_rect: Option<egui::Rect>,
     pub drag: Option<DragPayload>,
@@ -308,6 +314,7 @@ pub struct EditorState {
 }
 
 pub struct SaveJob {
+    pub ui_revision: u64,
     pub label: String,
     pub started_at: std::time::Instant,
     pub rx: std::sync::mpsc::Receiver<SaveMessage>,
@@ -317,6 +324,13 @@ pub struct SaveJob {
 pub enum SaveMessage {
     Status(String),
     Done(Result<(), String>),
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum Workspace {
+    #[default]
+    Scene,
+    Ui,
 }
 
 pub struct ProjectLoadJob {
@@ -496,6 +510,23 @@ impl Default for GizmoState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_project_loads_without_ui_screens() {
+        let mut value = serde_json::to_value(ProjectState::new("old".into(), "/tmp/old".into())).unwrap();
+        value.as_object_mut().unwrap().remove("ui_screens");
+        let project: ProjectState = serde_json::from_value(value).unwrap();
+        assert!(project.ui_screens.is_empty());
+    }
+
+    #[test]
+    fn dialogue_and_sample_choices_survive_project_roundtrip() {
+        let mut project = ProjectState::new("game".into(), "/tmp/game".into());
+        project.ui_screens.push(crate::ui_runtime::UiScreen::dialogue("dialogue-id"));
+        let parsed: ProjectState = serde_json::from_str(&serde_json::to_string(&project).unwrap()).unwrap();
+        assert_eq!(parsed.ui_screens, project.ui_screens);
+        assert!(!parsed.ui_screens[0].sample_data.lists["choices"].is_empty());
+    }
 
     #[test]
     fn project_state_serde_roundtrip() {

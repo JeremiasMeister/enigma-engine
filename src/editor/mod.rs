@@ -5,6 +5,7 @@ pub mod inspector;
 pub mod gizmo;
 pub mod theme;
 pub mod widgets;
+pub mod ui_editor;
 
 use std::collections::HashMap;
 
@@ -42,6 +43,22 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     egui::TopBottomPanel::bottom("status")
         .frame(egui::Frame::none().fill(theme::BACKGROUND).inner_margin(egui::Margin::symmetric(12.0, 5.0)))
         .show(ctx, |ui| panels::toolbar::status(ui, app_state));
+
+    let ui_workspace = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.workspace == state::Workspace::Ui).unwrap_or(false);
+    if ui_workspace {
+        if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            root.editor.viewport_rect = None;
+            root.editor.gizmo.drag = None;
+            if let Some(handle) = &root.editor.gizmo.grid_overlay_enable {
+                handle.store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+            ui_editor::draw(ctx, root);
+        }
+        process_modals(ctx, app_state);
+        draw_job_overlay(ctx, app_state);
+        return;
+    }
 
     egui::SidePanel::left("hierarchy")
         .default_width(230.0)

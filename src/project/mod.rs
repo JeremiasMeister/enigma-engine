@@ -1,6 +1,9 @@
+pub mod code_files;
 pub mod resource;
 pub mod scene;
 pub mod material;
+pub mod ui_codegen;
+pub mod ui_assets;
 
 use std::fs;
 use std::path::Path;
@@ -46,7 +49,7 @@ pub fn try_new_project(path: &str, app_state: &mut AppState) -> Result<(), Proje
 
     let root = app_state.get_state_data_value_mut::<EditorRoot>("editor")
         .ok_or(ProjectError::EditorRootMissing)?;
-    root.project = Some(project);
+    replace_project(root, project);
     Ok(())
 }
 
@@ -55,21 +58,15 @@ pub fn try_open_project(path: &str, app_state: &mut AppState) -> Result<(), Proj
     if !is_valid_project_file(&path) {
         return Err(ProjectError::InvalidProjectFile);
     }
-    let text = fs::read_to_string(&path).map_err(ProjectError::Io)?;
-    let mut project: ProjectState = serde_json::from_str(&text).map_err(ProjectError::Parse)?;
-
-    let root_dir = Path::new(&path).parent()
-        .and_then(|p| p.to_str())
-        .ok_or(ProjectError::BadPath)?
-        .to_string();
-    project.root_path = root_dir.clone();
+    let project = read_project_file(Path::new(&path))?;
+    let root_dir = project.root_path.clone();
 
     let active_scene_path = project.scenes.get(project.active_scene_index)
         .map(|s| Path::new(&root_dir).join("src/resources").join(&s.relative_path));
 
     let root = app_state.get_state_data_value_mut::<EditorRoot>("editor")
         .ok_or(ProjectError::EditorRootMissing)?;
-    root.project = Some(project);
+    replace_project(root, project);
     root.editor.material_cache.clear();
 
     if let Some(path) = active_scene_path {
@@ -113,29 +110,14 @@ pub fn start_open_project(path: &str, app_state: &mut AppState) {
             return;
         }
         let _ = tx.send(ProjectLoadMessage::Status(format!("reading {path}")));
-        let text = match fs::read_to_string(&path) {
-            Ok(t) => t,
-            Err(e) => {
-                let _ = tx.send(ProjectLoadMessage::Done(Err(format!("read failed: {e}"))));
+        let project = match read_project_file(Path::new(&path)) {
+            Ok(project) => project,
+            Err(error) => {
+                let _ = tx.send(ProjectLoadMessage::Done(Err(error.to_string())));
                 return;
             }
         };
-        let _ = tx.send(ProjectLoadMessage::Status("parsing project file".into()));
-        let mut project: ProjectState = match serde_json::from_str(&text) {
-            Ok(p) => p,
-            Err(e) => {
-                let _ = tx.send(ProjectLoadMessage::Done(Err(format!("project parse: {e}"))));
-                return;
-            }
-        };
-        let root_dir = match Path::new(&path).parent().and_then(|p| p.to_str()) {
-            Some(s) => s.to_string(),
-            None => {
-                let _ = tx.send(ProjectLoadMessage::Done(Err("bad project path".into())));
-                return;
-            }
-        };
-        project.root_path = root_dir.clone();
+        let root_dir = project.root_path.clone();
 
         let scene_text = if let Some(scene) = project.scenes.get(project.active_scene_index) {
             let scene_path = Path::new(&root_dir).join("src/resources").join(&scene.relative_path);
@@ -214,7 +196,7 @@ fn apply_load_payload(app_state: &mut AppState, payload: ProjectLoadPayload) {
     if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         r.editor.material_cache.clear();
         r.editor.applied_skybox = None;
-        r.project = Some(payload.project);
+        replace_project(r, payload.project);
     }
 
     let Some(scene_text) = payload.scene_text else { return; };
@@ -284,6 +266,7 @@ pub fn start_save_scene_and_project(app_state: &mut AppState) {
 
     if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         r.editor.save_job = Some(SaveJob {
+            ui_revision: r.editor.ui_revision,
             label: "Saving".into(),
             started_at,
             rx,
@@ -319,6 +302,7 @@ pub fn start_save_project_only(app_state: &mut AppState) {
 
     if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         r.editor.save_job = Some(SaveJob {
+            ui_revision: r.editor.ui_revision,
             label: "Saving Project".into(),
             started_at,
             rx,
@@ -357,17 +341,39 @@ pub fn poll_save_job(app_state: &mut AppState) {
 
     let Some(res) = completion else { return; };
 
-    if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
-        match res {
-            Ok(()) => {
-                r.editor.dirty = false;
-            }
-            Err(e) => {
-                eprintln!("save failed: {e}");
-            }
-        }
-        r.editor.save_job = None;
+    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        finish_save(root, res);
     }
+}
+
+fn finish_save(root: &mut EditorRoot, result: Result<(), String>) {
+    match result {
+        Ok(()) => {
+            root.editor.dirty = root.editor.save_job.as_ref()
+                .map(|job| job.ui_revision != root.editor.ui_revision).unwrap_or(false);
+        }
+        Err(error) => {
+            root.editor.modal = Some(crate::editor::state::Modal::ImportError(format!("Save failed: {error}")));
+        }
+    }
+    root.editor.save_job = None;
+}
+
+fn read_project_file(path: &Path) -> Result<ProjectState, ProjectError> {
+    let text = fs::read_to_string(path).map_err(ProjectError::Io)?;
+    let mut project: ProjectState = serde_json::from_str(&text).map_err(ProjectError::Parse)?;
+    project.root_path = path.parent().and_then(|p| p.to_str()).ok_or(ProjectError::BadPath)?.to_string();
+    Ok(project)
+}
+
+fn replace_project(root: &mut EditorRoot, project: ProjectState) {
+    // A previous project may still finish writing on its worker thread. Its
+    // completion must never clear this project's unsaved indicator.
+    root.editor.save_job = None;
+    root.editor.dirty = false;
+    root.project = Some(project);
+    root.editor.ui_editor = Default::default();
+    root.editor.ui_revision = 0;
 }
 
 pub fn try_save_project(app_state: &mut AppState) -> Result<(), ProjectError> {
@@ -436,5 +442,50 @@ impl std::fmt::Display for ProjectError {
             ProjectError::NoProject => write!(f, "no project loaded"),
             ProjectError::NoDisplay => write!(f, "internal: display not yet ready"),
         }
+    }
+}
+
+#[cfg(test)]
+mod ui_tests {
+    use super::*;
+
+    #[test]
+    fn replacing_project_detaches_previous_save_completion() {
+        let mut root = EditorRoot::empty();
+        let (_tx, rx) = mpsc::channel();
+        root.editor.save_job = Some(SaveJob { ui_revision: 1, label: "Saving A".into(), started_at: Instant::now(), rx, lines: Vec::new() });
+        replace_project(&mut root, ProjectState::new("B".into(), "/tmp/b".into()));
+        root.editor.ui_revision = 1;
+        root.editor.dirty = true;
+        assert!(root.editor.save_job.is_none(), "A's completion must not be polled against B");
+    }
+
+    #[test]
+    fn save_and_reopen_restores_dialogue_and_resets_transient_ui_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut root = EditorRoot::empty();
+        let mut project = ProjectState::new("game".into(), dir.path().to_string_lossy().into_owned());
+        let expected = crate::ui_runtime::UiScreen::dialogue("conversation");
+        project.ui_screens.push(expected.clone());
+        root.editor.ui_editor.active_screen = Some("stale".into());
+        root.editor.ui_editor.selected = Some(999);
+        write_project_file(dir.path().to_str().unwrap(), &project).unwrap();
+        let loaded = read_project_file(&dir.path().join(PROJECT_FILE)).unwrap();
+        replace_project(&mut root, loaded);
+        assert_eq!(root.project.as_ref().unwrap().ui_screens, vec![expected]);
+        assert!(root.editor.ui_editor.active_screen.is_none());
+        assert!(root.editor.ui_editor.selected.is_none());
+    }
+
+    #[test]
+    fn completed_save_preserves_ui_edits_made_while_it_was_running() {
+        let mut root = EditorRoot::empty();
+        let (_tx, rx) = mpsc::channel();
+        root.editor.dirty = true;
+        root.editor.ui_revision = 2;
+        root.editor.save_job = Some(SaveJob { ui_revision: 1, label: "Saving".into(), started_at: Instant::now(), rx, lines: Vec::new() });
+        finish_save(&mut root, Ok(()));
+        assert!(root.editor.dirty);
+        assert!(root.editor.save_job.is_none());
     }
 }

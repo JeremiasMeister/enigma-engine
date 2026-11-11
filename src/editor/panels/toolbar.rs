@@ -42,6 +42,12 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
 
         scene_menu(ui, app_state);
 
+        ui.separator();
+        if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+            ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Scene, "3D scene");
+            ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Ui, "UI");
+        }
+
         let project_loaded = current_project_clone(app_state).is_some();
         let busy = app_state
             .get_state_data_value::<EditorRoot>("editor")
@@ -144,7 +150,9 @@ pub fn status(ui: &mut Ui, app_state: &AppState) {
                     ui.small(format!("{} {} ({:.1}s)", marker, last.label, dur))
                         .on_hover_text(&last.message);
                 } else {
-                    ui.small("Q Select   W Move   E Rotate   R Scale   F Focus");
+                    ui.small(if root.editor.workspace == crate::editor::state::Workspace::Ui {
+                        "Drag to move · Corner to resize · Ctrl/Cmd+Z Undo"
+                    } else { "Q Select   W Move   E Rotate   R Scale   F Focus" });
                 }
             });
         }
