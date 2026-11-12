@@ -133,7 +133,13 @@ fn properties(
             });
         }
         ui.add_space(12.0);
-        super::appearance::node_controls(ui, node, &mut screen.styles, &screen.textures);
+        super::appearance::node_controls(
+            ui,
+            node,
+            &mut screen.styles,
+            &mut screen.textures,
+            textures,
+        );
         ui.horizontal(|ui| {
             ui.checkbox(&mut node.visible, "Visible");
             ui.checkbox(&mut node.enabled, "Enabled");
@@ -319,6 +325,90 @@ fn is_descendant(screen: &UiScreen, mut candidate: u64, ancestor: u64) -> bool {
 mod tests {
     use super::*;
     use crate::ui_runtime::UiNode;
+
+    #[test]
+    fn project_texture_is_selectable_on_a_widget_and_survives_preview_and_export() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("src/resources/textures")).unwrap();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([40, 80, 120, 255]))
+            .save(root.path().join("src/resources/textures/worldmap.png"))
+            .unwrap();
+        let ctx = egui::Context::default();
+        ctx.style_mut(|s| s.animation_time = 0.0);
+        let mut screen = UiScreen::new("Screen", "screen");
+        screen.nodes.push(UiNode::new(1, WidgetKind::Image, "Map"));
+        let mut state = UiEditorState {
+            selected: Some(1),
+            ..Default::default()
+        };
+        let candidates = vec![("worldmap".into(), "textures/worldmap.png".into())];
+        let mut tick = 0.0;
+        let mut render = |screen: &mut UiScreen, state: &mut UiEditorState, events| {
+            tick += 0.1;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(420.0, 1600.0),
+                    )),
+                    time: Some(tick),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| draw(ui, screen, state, &candidates));
+                },
+            )
+        };
+        let mut output = render(&mut screen, &mut state, vec![]);
+        for label in ["Texture / sprite", "None", "worldmap"] {
+            let point = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == label => {
+                        Some(text.pos + egui::vec2(4.0, 5.0))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    panic!("{label} must be available in the widget texture picker")
+                });
+            for pressed in [true, false] {
+                render(
+                    &mut screen,
+                    &mut state,
+                    vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+            output = render(&mut screen, &mut state, vec![]);
+        }
+        assert_eq!(screen.nodes[0].skin.texture, "worldmap");
+        assert_eq!(screen.textures["worldmap"], "textures/worldmap.png");
+        super::super::load_textures(&ctx, &screen, root.path().to_str().unwrap(), &mut state);
+        assert!(state.texture_error.is_none(), "{:?}", state.texture_error);
+        assert!(state.textures.contains("worldmap"));
+        let reopened: UiScreen =
+            serde_json::from_str(&serde_json::to_string(&screen).unwrap()).unwrap();
+        assert_eq!(reopened, screen);
+        assert!(
+            crate::project::ui_codegen::generate(root.path(), &[reopened])
+                .unwrap()
+                .iter()
+                .any(|path| path
+                    .extension()
+                    .is_some_and(|extension| extension == "rgba"))
+        );
+    }
 
     fn frame(
         ctx: &egui::Context,

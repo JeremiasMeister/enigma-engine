@@ -30,6 +30,12 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 }
                 ui.close_menu();
             }
+            if ui.button("Open Rust Project").clicked() {
+                if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                    if let Some(project) = &root.project { root.editor.code_editor.open_project(project); }
+                }
+                ui.close_menu();
+            }
             if ui.button("Save Project").clicked() {
                 project::start_save_project_only(app_state);
                 ui.close_menu();
@@ -46,6 +52,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
         if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
             ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Scene, "3D scene");
             ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Ui, "UI");
+            ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Code, "Code");
         }
 
         let project_loaded = current_project_clone(app_state).is_some();
@@ -59,9 +66,13 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             .unwrap_or(false);
         let enabled = project_loaded && !busy;
 
-        if enabled
-            && ui.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
-        {
+        let code_workspace = app_state.get_state_data_value::<EditorRoot>("editor")
+            .is_some_and(|root| root.editor.workspace == crate::editor::state::Workspace::Code);
+        if code_workspace {
+            if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                root.editor.code_editor.shortcuts(ui.ctx());
+            }
+        } else if enabled && ui.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
             project::start_save_scene_and_project(app_state);
         }
 
@@ -97,18 +108,26 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             {
                 actions::run_project(app_state);
             }
-            if ui
-                .button("Save scene")
-                .on_hover_text("Save the active scene and project (Ctrl/Cmd+S)")
-                .clicked()
+            if ui.button(if code_workspace { "Save file" } else { "Save scene" })
+                .on_hover_text(if code_workspace { "Save the active source file (Ctrl/Cmd+S)" } else { "Save the active scene and project (Ctrl/Cmd+S)" }).clicked()
             {
-                project::start_save_scene_and_project(app_state);
+                if code_workspace {
+                    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") { root.editor.code_editor.save_active(); }
+                } else { project::start_save_scene_and_project(app_state); }
+            }
+            if ui.button("Open IDE").on_hover_text("Open the Rust project in your external editor").clicked() {
+                if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+                    if let Some(project) = &root.project { root.editor.code_editor.open_project(project); }
+                }
             }
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(root) = app_state.get_state_data_value::<EditorRoot>("editor") {
                 if let Some(p) = &root.project {
+                    if root.editor.code_editor.dirty_count() > 0 {
+                        ui.label(egui::RichText::new(format!("{} code unsaved", root.editor.code_editor.dirty_count())).small().color(theme::AMBER));
+                    }
                     if root.editor.dirty {
                         ui.label(egui::RichText::new("Unsaved").small().color(theme::AMBER))
                             .on_hover_text("Unsaved changes");
@@ -150,9 +169,11 @@ pub fn status(ui: &mut Ui, app_state: &AppState) {
                     ui.small(format!("{} {} ({:.1}s)", marker, last.label, dur))
                         .on_hover_text(&last.message);
                 } else {
-                    ui.small(if root.editor.workspace == crate::editor::state::Workspace::Ui {
-                        "Drag to move · Corner to resize · Ctrl/Cmd+Z Undo"
-                    } else { "Q Select   W Move   E Rotate   R Scale   F Focus" });
+                    ui.small(match root.editor.workspace {
+                        crate::editor::state::Workspace::Ui => "Drag to move · Corner to resize · Ctrl/Cmd+Z Undo",
+                        crate::editor::state::Workspace::Code => "Ctrl/Cmd+S Save file · Ctrl/Cmd+F Find",
+                        crate::editor::state::Workspace::Scene => "Q Select   W Move   E Rotate   R Scale   F Focus",
+                    });
                 }
             });
         }

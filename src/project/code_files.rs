@@ -106,13 +106,8 @@ pub fn list(root: &Path) -> Result<Vec<FileEntry>, String> {
     }
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     let mut files = Vec::new();
-    scan(
-        &root,
-        Path::new(""),
-        0,
-        &mut MAX_ENTRIES.clone(),
-        &mut files,
-    )?;
+    let mut budget = MAX_ENTRIES;
+    scan(&root, Path::new(""), 0, &mut budget, &mut files)?;
     files.sort_by(|a, b| a.relative.cmp(&b.relative));
     Ok(files)
 }
@@ -210,23 +205,22 @@ impl std::fmt::Display for SaveError {
 
 impl TextDocument {
     pub fn open(root: &Path, relative: &Path) -> Result<Self, String> {
-        let original = read(root, relative, MAX_TEXT_BYTES)?;
-        let bom = original.starts_with(&[0xef, 0xbb, 0xbf]);
-        let source = std::str::from_utf8(&original[if bom { 3 } else { 0 }..])
-            .map_err(|_| "File is not UTF-8 text.".to_string())?;
-        if source.contains('\0') {
-            return Err("Binary files cannot be edited as text.".into());
-        }
-        let crlf = source.contains("\r\n");
-        let mut document = Self {
+        let document = Self {
             root: root.canonicalize().map_err(|e| e.to_string())?,
             relative: relative.into(),
-            text: source.replace("\r\n", "\n"),
-            original,
-            crlf,
-            bom,
+            text: String::new(),
+            original: Vec::new(),
+            crlf: false,
+            bom: false,
             recovered: false,
         };
+        let source_path = checked_path(&document.root, relative, false)?;
+        if !std::fs::metadata(source_path)
+            .map_err(|e| e.to_string())?
+            .is_file()
+        {
+            return Err("This entry is not a regular file.".into());
+        }
         let draft = document.draft_path();
         let path = checked_path(&document.root, &draft, true)?;
         if path.exists() {
@@ -238,12 +232,36 @@ impl TextDocument {
                 || recovered.text.len() > MAX_TEXT_BYTES
                 || recovered.original.len() > MAX_TEXT_BYTES
                 || recovered.text.contains('\0')
+                || recovered.bom != recovered.original.starts_with(&[0xef, 0xbb, 0xbf])
+                || std::str::from_utf8(&recovered.original).map_or(true, |text| text.contains('\0'))
             {
                 return Err("Recovery draft does not match this document or is invalid.".into());
             }
             recovered.recovered = true;
-            document = recovered;
+            return Ok(recovered);
         }
+        Self::open_disk(root, relative)
+    }
+
+    /// Read only the source version for an explicitly requested reload.
+    pub fn open_disk(root: &Path, relative: &Path) -> Result<Self, String> {
+        let original = read(root, relative, MAX_TEXT_BYTES)?;
+        let bom = original.starts_with(&[0xef, 0xbb, 0xbf]);
+        let source = std::str::from_utf8(&original[if bom { 3 } else { 0 }..])
+            .map_err(|_| "File is not UTF-8 text.".to_string())?;
+        if source.contains('\0') {
+            return Err("Binary files cannot be edited as text.".into());
+        }
+        let crlf = source.contains("\r\n");
+        let document = Self {
+            root: root.canonicalize().map_err(|e| e.to_string())?,
+            relative: relative.into(),
+            text: source.replace("\r\n", "\n"),
+            original,
+            crlf,
+            bom,
+            recovered: false,
+        };
         Ok(document)
     }
     fn encoded(&self) -> Vec<u8> {
@@ -263,8 +281,14 @@ impl TextDocument {
         }
         bytes
     }
+    pub fn editing_limits(&self) -> (usize, bool) {
+        (MAX_TEXT_BYTES - if self.bom { 3 } else { 0 }, self.crlf)
+    }
     pub fn dirty(&self) -> bool {
-        self.encoded() != self.original
+        let source = &self.original[if self.bom { 3 } else { 0 }..];
+        std::str::from_utf8(source)
+            .map(|text| self.text != text.replace("\r\n", "\n"))
+            .unwrap_or(true)
     }
     pub fn save(&mut self, overwrite: bool) -> Result<(), SaveError> {
         let bytes = self.encoded();
@@ -320,7 +344,20 @@ impl TextDocument {
             }
         }
         let bytes = serde_json::to_vec(self).map_err(|e| e.to_string())?;
-        atomic_write(&self.root, &path, &bytes, true, None).map_err(|e| e.to_string())
+        atomic_write(&self.root, &path, &bytes, true, None).map_err(|e| e.to_string())?;
+        // Recovery files are local editor state, not project source. Respect an
+        // existing ignore file and never replace it or follow a link.
+        use std::io::Write;
+        let ignore = checked_path(&self.root, Path::new(".enigma-editor/.gitignore"), true)?;
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(ignore)
+        {
+            Ok(mut file) => file.write_all(b"*\n").map_err(|e| e.to_string()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
     }
     pub fn remove_draft(&self) -> Result<(), String> {
         let path = checked_path(&self.root, &self.draft_path(), true)?;
@@ -459,6 +496,51 @@ mod tests {
         assert_eq!(
             fs::metadata(path).unwrap().permissions().mode() & 0o777,
             0o640
+        );
+    }
+    #[test]
+    fn invalid_recovery_encoding_is_rejected_without_panicking() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("main.rs"), "original").unwrap();
+        let mut document = TextDocument::open(root.path(), Path::new("main.rs")).unwrap();
+        document.text = "draft".into();
+        document.store_draft().unwrap();
+        let path = root.path().join(document.draft_path());
+        let mut payload = serde_json::to_value(&document).unwrap();
+        payload["bom"] = true.into();
+        payload["original"] = serde_json::json!([]);
+        std::fs::write(path, serde_json::to_vec(&payload).unwrap()).unwrap();
+        assert!(TextDocument::open(root.path(), Path::new("main.rs")).is_err());
+    }
+
+    #[test]
+    fn valid_draft_recovers_when_external_source_becomes_binary_or_oversized() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("main.rs");
+        std::fs::write(&path, "original").unwrap();
+        let mut document = TextDocument::open(root.path(), Path::new("main.rs")).unwrap();
+        document.text = "my draft".into();
+        document.store_draft().unwrap();
+        for external in [vec![0xff, 0], vec![b'x'; MAX_TEXT_BYTES + 1]] {
+            std::fs::write(&path, &external).unwrap();
+            let mut recovered = TextDocument::open(root.path(), Path::new("main.rs")).unwrap();
+            assert_eq!(recovered.text, "my draft");
+            assert!(recovered.save(false).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), external);
+        }
+    }
+
+    #[test]
+    fn mixed_newlines_start_clean_and_drafts_are_git_ignored() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("main.rs"), "one\r\ntwo\n").unwrap();
+        let mut document = TextDocument::open(root.path(), Path::new("main.rs")).unwrap();
+        assert!(!document.dirty());
+        document.text.push_str("three\n");
+        document.store_draft().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(".enigma-editor/.gitignore")).unwrap(),
+            "*\n"
         );
     }
 }

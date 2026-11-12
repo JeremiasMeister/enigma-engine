@@ -286,6 +286,7 @@ impl EditorRoot {
 pub struct EditorState {
     pub workspace: Workspace,
     pub ui_editor: crate::editor::ui_editor::UiEditorState,
+    pub code_editor: crate::editor::code_editor::CodeEditorState,
     pub ui_revision: u64,
     pub selection: Selection,
     pub viewport_rect: Option<egui::Rect>,
@@ -331,6 +332,7 @@ pub enum Workspace {
     #[default]
     Scene,
     Ui,
+    Code,
 }
 
 pub struct ProjectLoadJob {

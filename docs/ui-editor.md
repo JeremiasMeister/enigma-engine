@@ -14,7 +14,9 @@ Select the screen root in the hierarchy to rename it or change its reference res
 
 ## Textures, sprites and visual styles
 
-Select the **screen root** in the hierarchy to find **Textures & sprites**. **Import artwork…** copies a PNG, JPEG, GIF, BMP or TGA (first frame only) into the project's texture resources. **Use project texture…** references an existing imported texture. The displayed asset name is the key used by widgets and data bindings. **Reload** refreshes edited source art. Removing a UI reference keeps the source file.
+Project textures are available directly under a widget's **Appearance → Texture / sprite → Texture**, and in its hover/pressed texture pickers and reusable styles. Choosing a project texture automatically registers it on that UI screen without copying the file. Existing screen aliases are reused; duplicate names receive a suffix.
+
+Select the **screen root** in the hierarchy to find **Textures & sprites**. **Import artwork…** copies a PNG, JPEG, GIF, BMP or TGA (first frame only) into `src/resources/textures` and adds it to the project manifest and the screen. **Use project texture…** can register extra textures for procedural bindings. While the UI workspace is open, images already in `src/resources/textures` (including subfolders) are discovered in the background and added to the manifest without copying them. **Save Project** persists the manifest; discovery marks it unsaved. The displayed screen asset name is the key used by widgets and data bindings. **Reload** rescans the folder and refreshes edited source art. Removing a UI reference keeps the source file and project asset.
 
 Add an **Image** widget for a portrait, icon, decoration or backdrop. Panels, buttons and other controls can also have textured backgrounds. Under **Appearance → Texture / sprite**, choose the asset, tint, and filtering. Enable **Pixelated filtering** for pixel art. Choose **Contain** to preserve the whole image, **Cover** to fill the bounds with cropping, or **Stretch** to fill the widget exactly.
 

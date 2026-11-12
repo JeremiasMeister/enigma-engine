@@ -145,7 +145,8 @@ pub fn node_controls(
     ui: &mut Ui,
     node: &mut UiNode,
     styles: &mut BTreeMap<String, UiStyle>,
-    textures: &BTreeMap<String, String>,
+    textures: &mut BTreeMap<String, String>,
+    candidates: &[(String, String)],
 ) {
     theme::section(ui, "Appearance");
     let old = node.style_key.clone();
@@ -163,7 +164,7 @@ pub fn node_controls(
     }
     if node.style_key.is_empty() {
         let mut style = UiStyle::from_node(node);
-        style_controls(ui, &mut style, textures, "local");
+        style_controls(ui, &mut style, textures, candidates, "local");
         node.color = style.color;
         node.text_color = style.text_color;
         node.font_size = style.font_size;
@@ -176,7 +177,7 @@ pub fn node_controls(
         }
     } else if let Some(style) = styles.get_mut(&node.style_key) {
         ui.weak("Editing this style updates every widget using it.");
-        style_controls(ui, style, textures, &node.style_key);
+        style_controls(ui, style, textures, candidates, &node.style_key);
     } else {
         ui.colored_label(
             theme::AMBER,
@@ -203,7 +204,8 @@ fn texture_picker(
     ui: &mut Ui,
     label: &str,
     value: &mut String,
-    textures: &BTreeMap<String, String>,
+    textures: &mut BTreeMap<String, String>,
+    candidates: &[(String, String)],
 ) {
     ui.label(label);
     egui::ComboBox::from_id_source(label)
@@ -218,13 +220,58 @@ fn texture_picker(
             for key in textures.keys() {
                 ui.selectable_value(value, key.clone(), key);
             }
+            if !candidates.is_empty() {
+                ui.separator();
+                ui.weak("Project textures");
+                if let Some(key) = project_texture_options(ui, textures, candidates) {
+                    *value = key;
+                }
+            }
         });
+}
+
+fn project_texture_options(
+    ui: &mut Ui,
+    textures: &mut BTreeMap<String, String>,
+    candidates: &[(String, String)],
+) -> Option<String> {
+    let mut selected = None;
+    for (name, path) in candidates {
+        // A screen keeps its own stable keys, including aliases used by data.
+        let existing = textures
+            .iter()
+            .find(|(_, registered)| *registered == path)
+            .map(|(key, _)| key.clone());
+        ui.push_id(path, |ui| {
+            if ui
+                .add_enabled(
+                    existing.is_some() || textures.len() < 64,
+                    egui::Button::new(name),
+                )
+                .on_hover_text(path)
+                .clicked()
+            {
+                let key = existing.unwrap_or_else(|| {
+                    let key = unique_name(name, textures.keys().map(String::as_str));
+                    textures.insert(key.clone(), path.clone());
+                    key
+                });
+                selected = Some(key);
+                ui.close_menu();
+            }
+        });
+    }
+    if textures.len() >= 64 {
+        ui.weak("This screen has 64 textures. Remove an unused reference to add another.");
+    }
+    selected
 }
 
 fn style_controls(
     ui: &mut Ui,
     style: &mut UiStyle,
-    textures: &BTreeMap<String, String>,
+    textures: &mut BTreeMap<String, String>,
+    candidates: &[(String, String)],
     identity: &str,
 ) {
     // TextEdit and DragValue use auto IDs in egui 0.23; seed an independent
@@ -238,11 +285,16 @@ fn style_controls(
     );
     fields.set_style(ui.style().clone());
     fields.set_enabled(ui.is_enabled());
-    style_fields(&mut fields, style, textures);
+    style_fields(&mut fields, style, textures, candidates);
     ui.allocate_rect(fields.min_rect(), egui::Sense::hover());
 }
 
-fn style_fields(ui: &mut Ui, style: &mut UiStyle, textures: &BTreeMap<String, String>) {
+fn style_fields(
+    ui: &mut Ui,
+    style: &mut UiStyle,
+    textures: &mut BTreeMap<String, String>,
+    candidates: &[(String, String)],
+) {
     color(ui, "Fill", &mut style.color);
     color(ui, "Text / value", &mut style.text_color);
     ui.horizontal(|ui| {
@@ -275,8 +327,8 @@ fn style_fields(ui: &mut Ui, style: &mut UiStyle, textures: &BTreeMap<String, St
         number(ui, "Border width", &mut style.skin.border_width, 32.0);
     });
     egui::CollapsingHeader::new("Texture / sprite").show(ui, |ui| {
-        texture_picker(ui, "Texture", &mut style.skin.texture, textures);
-        if textures.is_empty() {
+        texture_picker(ui, "Texture", &mut style.skin.texture, textures, candidates);
+        if textures.is_empty() && candidates.is_empty() {
             ui.weak("Select the screen root to import artwork.");
         }
         color(ui, "Tint", &mut style.skin.tint);
@@ -316,12 +368,19 @@ fn style_fields(ui: &mut Ui, style: &mut UiStyle, textures: &BTreeMap<String, St
         ui.weak("Read a texture name from data, e.g. portrait or icon.");
     });
     egui::CollapsingHeader::new("Hover & pressed states").show(ui, |ui| {
-        texture_picker(ui, "Hover texture", &mut style.skin.hover_texture, textures);
+        texture_picker(
+            ui,
+            "Hover texture",
+            &mut style.skin.hover_texture,
+            textures,
+            candidates,
+        );
         texture_picker(
             ui,
             "Pressed texture",
             &mut style.skin.pressed_texture,
             textures,
+            candidates,
         );
         optional_color(ui, "Hover fill", &mut style.skin.hover_color, style.color);
         optional_color(
@@ -384,7 +443,13 @@ pub fn screen_controls(
                     }
                 });
             if let Some(style) = screen.styles.get_mut(&state.selected_style) {
-                style_controls(ui, style, &screen.textures, &state.selected_style);
+                style_controls(
+                    ui,
+                    style,
+                    &mut screen.textures,
+                    candidates,
+                    &state.selected_style,
+                );
             }
         });
     }
@@ -396,17 +461,12 @@ pub fn screen_controls(
         }
         if ui.button("Reload").clicked() {
             state.texture_sources = None;
+            state.texture_discovery.refresh();
         }
     });
     if !candidates.is_empty() {
         ui.menu_button("Use project texture…", |ui| {
-            for (name, path) in candidates {
-                if ui.button(name).clicked() {
-                    let key = unique_name(name, screen.textures.keys().map(String::as_str));
-                    screen.textures.insert(key, path.clone());
-                    ui.close_menu();
-                }
-            }
+            project_texture_options(ui, &mut screen.textures, candidates);
         });
     }
     ui.weak("PNG, JPEG, GIF, BMP or TGA. Images are embedded when exporting Rust.");

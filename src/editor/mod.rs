@@ -6,6 +6,7 @@ pub mod gizmo;
 pub mod theme;
 pub mod widgets;
 pub mod ui_editor;
+pub mod code_editor;
 
 use std::collections::HashMap;
 
@@ -16,6 +17,11 @@ use crate::editor::state::{EditorRoot, Modal, PendingDelete};
 
 pub fn draw(ctx: &Context, app_state: &mut AppState) {
     theme::apply(ctx);
+    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        if let Some(error) = root.editor.code_editor.poll(ctx) {
+            root.editor.modal = Some(Modal::ImportError(error));
+        }
+    }
     crate::editor::actions::poll_job(app_state);
     crate::project::poll_project_load(app_state);
     crate::project::poll_save_job(app_state);
@@ -44,16 +50,20 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
         .frame(egui::Frame::none().fill(theme::BACKGROUND).inner_margin(egui::Margin::symmetric(12.0, 5.0)))
         .show(ctx, |ui| panels::toolbar::status(ui, app_state));
 
-    let ui_workspace = app_state.get_state_data_value::<EditorRoot>("editor")
-        .map(|r| r.editor.workspace == state::Workspace::Ui).unwrap_or(false);
-    if ui_workspace {
+    let workspace = app_state.get_state_data_value::<EditorRoot>("editor")
+        .map(|r| r.editor.workspace).unwrap_or_default();
+    if workspace != state::Workspace::Scene {
         if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
             root.editor.viewport_rect = None;
             root.editor.gizmo.drag = None;
             if let Some(handle) = &root.editor.gizmo.grid_overlay_enable {
                 handle.store(false, std::sync::atomic::Ordering::Relaxed);
             }
-            ui_editor::draw(ctx, root);
+            match workspace {
+                state::Workspace::Ui => ui_editor::draw(ctx, root),
+                state::Workspace::Code => code_editor::draw(ctx, root),
+                state::Workspace::Scene => unreachable!(),
+            }
         }
         process_modals(ctx, app_state);
         draw_job_overlay(ctx, app_state);

@@ -2,6 +2,7 @@ mod appearance;
 mod canvas;
 mod history;
 mod inspector;
+mod texture_discovery;
 
 use crate::editor::{state::EditorRoot, theme};
 use crate::project::ui_codegen;
@@ -37,6 +38,7 @@ pub struct UiEditorState {
     textures: UiTextures,
     texture_sources: Option<(String, std::collections::BTreeMap<String, String>)>,
     texture_error: Option<String>,
+    texture_discovery: texture_discovery::TextureDiscovery,
 }
 
 impl Default for UiEditorState {
@@ -62,6 +64,7 @@ impl Default for UiEditorState {
             textures: UiTextures::default(),
             texture_sources: None,
             texture_error: None,
+            texture_discovery: Default::default(),
         }
     }
 }
@@ -132,6 +135,13 @@ pub fn draw(ctx: &Context, root: &mut EditorRoot) {
         return;
     };
     let state = &mut root.editor.ui_editor;
+    let discovered = state.texture_discovery.poll(ctx, project);
+    if discovered > 0 {
+        root.editor.dirty = true;
+        root.editor.ui_revision = root.editor.ui_revision.wrapping_add(1);
+        root.editor.code_editor.invalidate_tree();
+        state.status = format!("Added {discovered} texture(s) to project assets. Save Project to keep the manifest.");
+    }
     state.sync(&project.ui_screens);
     let before = project.ui_screens.clone();
     let mut history_navigation = false;
@@ -391,6 +401,9 @@ pub fn draw(ctx: &Context, root: &mut EditorRoot) {
                 if let Some(error) = &state.texture_error {
                     ui.colored_label(theme::AMBER, error);
                 }
+                if let Some(error) = &state.texture_discovery.error {
+                    ui.colored_label(theme::AMBER, error);
+                }
                 ui.horizontal_wrapped(|ui| {
                     ui.small(&state.status);
                     if let Err(error) = screen.validate() {
@@ -450,6 +463,7 @@ pub fn draw(ctx: &Context, root: &mut EditorRoot) {
             &project.ui_screens,
         ) {
             Ok(paths) => {
+                root.editor.code_editor.invalidate_tree();
                 state.status = format!(
                     "Generated {} files in src/generated_ui. Open Code for registration.",
                     paths.len()
@@ -736,6 +750,27 @@ fn restored_screen<'a>(before: &[UiScreen], after: &'a [UiScreen]) -> Option<&'a
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ui_workspace_discovers_folder_textures_and_marks_manifest_unsaved() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src/resources/textures")).unwrap();
+        std::fs::write(tmp.path().join("src/resources/textures/worldmap.png"), b"fixture").unwrap();
+        let mut root = EditorRoot::empty();
+        root.project = Some(crate::editor::state::ProjectState::new("Art".into(), tmp.path().to_string_lossy().into()));
+        let ctx = Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while root.project.as_ref().unwrap().manifest.is_empty() && std::time::Instant::now() < deadline {
+            let _ = ctx.run(Default::default(), |ctx| draw(ctx, &mut root));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let project = root.project.as_ref().unwrap();
+        assert_eq!(project.manifest.len(), 1);
+        assert_eq!(project.manifest[0].relative_path, "textures/worldmap.png");
+        assert!(root.editor.dirty);
+        assert_eq!(root.editor.ui_revision, 1);
+        assert!(root.editor.ui_editor.texture_discovery.error.is_none());
+    }
+
     #[test]
     fn artwork_import_validates_before_mutating_and_preserves_both_files() {
         let tmp = tempfile::tempdir().unwrap();

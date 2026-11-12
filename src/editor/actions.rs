@@ -158,6 +158,13 @@ fn save_before_run(app_state: &mut AppState) -> Option<ProjectState> {
     let project = app_state
         .get_state_data_value::<EditorRoot>("editor")
         .and_then(|r| r.project.clone())?;
+    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
+        if let Err(error) = root.editor.code_editor.save_project(std::path::Path::new(&project.root_path)) {
+            root.editor.workspace = crate::editor::state::Workspace::Code;
+            root.editor.modal = Some(crate::editor::state::Modal::ImportError(format!("Build/Play stopped: {error}")));
+            return None;
+        }
+    }
     if let Err(e) = project::scene::save_active(&project, app_state) {
         eprintln!("save scene failed: {e:?}");
         return None;
