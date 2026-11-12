@@ -6,9 +6,12 @@ use uuid::Uuid;
 use crate::editor::state::{ProjectState, SceneRef};
 
 pub fn save_active(project: &ProjectState, app_state: &AppState) -> Result<(), SceneError> {
+    save_snapshot(project, app_state.to_serializer())
+}
+
+fn save_snapshot(project: &ProjectState, mut serializer: AppStateSerializer) -> Result<(), SceneError> {
     let scene = project.scenes.get(project.active_scene_index).ok_or(SceneError::NoActiveScene)?;
     let path = scene_path(project, scene);
-    let mut serializer = app_state.to_serializer();
     normalize_animation_times(&mut serializer.objects);
     let text = serde_json::to_string_pretty(&serializer).map_err(SceneError::Parse)?;
     fs::write(&path, text).map_err(SceneError::Io)?;
@@ -27,11 +30,12 @@ pub fn switch(
     let text = fs::read_to_string(&path).map_err(SceneError::Io)?;
     let trimmed = text.trim();
 
+    let serializer = if !trimmed.is_empty() && trimmed != "{}" {
+        Some(serde_json::from_str::<AppStateSerializer>(&text).map_err(SceneError::Parse)?)
+    } else { None };
     let display = app_state.display.clone().ok_or(SceneError::NoDisplay)?;
     clear_scene(app_state);
-
-    if !trimmed.is_empty() && trimmed != "{}" {
-        let serializer: AppStateSerializer = serde_json::from_str(&text).map_err(SceneError::Parse)?;
+    if let Some(serializer) = serializer {
         app_state.inject_serializer(serializer, display, /*additive=*/false);
     }
     project.active_scene_index = target_index;
@@ -90,6 +94,7 @@ fn clear_scene(app_state: &mut AppState) {
     app_state.objects.clear();
     app_state.light.clear();
     app_state.materials.clear();
+    app_state.post_processing.clear();
     // camera, ambient_light, skybox left intact — re-set by inject_serializer if present in the scene.
 }
 
@@ -122,6 +127,28 @@ pub enum SceneError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_snapshot_round_trip_preserves_effects_and_accepts_legacy_scenes() {
+        use enigma_3d::postprocessing::stack::{ParameterValue, EffectEntry};
+        let tmp = tempfile::tempdir().unwrap();
+        let mut project = make_project(tmp.path());
+        new_scene(&mut project, "main".into()).unwrap();
+        let registry = enigma_3d::postprocessing::stack::EffectRegistry::default();
+        let mut effect = registry.get("enigma.bloom").unwrap().entry();
+        effect.parameters.insert("threshold".into(), ParameterValue::Float(0.42));
+        effect.enabled = false;
+        let mut snapshot: AppStateSerializer = serde_json::from_str(r#"{"camera":null,"light":[],"ambient_light":null,"skybox":null,"materials":[],"skybox_texture":null,"objects":[],"object_selection":[]}"#).unwrap();
+        snapshot.post_processing.push(effect.clone());
+        save_snapshot(&project, snapshot).unwrap();
+        let text = fs::read_to_string(tmp.path().join("src/resources/scenes/main.json")).unwrap();
+        let saved: AppStateSerializer = serde_json::from_str(&text).unwrap();
+        assert_eq!(saved.post_processing, vec![effect]);
+        let mut legacy: serde_json::Value = serde_json::from_str(&text).unwrap();
+        legacy.as_object_mut().unwrap().remove("post_processing");
+        let legacy: AppStateSerializer = serde_json::from_value(legacy).unwrap();
+        assert_eq!(legacy.post_processing, Vec::<EffectEntry>::new());
+    }
 
     fn make_project(tmp: &Path) -> ProjectState {
         let p = ProjectState::new("t".into(), tmp.to_string_lossy().into_owned());

@@ -28,4 +28,5 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             }
         }
     }
+    super::post_processing::draw(ui, app_state);
 }

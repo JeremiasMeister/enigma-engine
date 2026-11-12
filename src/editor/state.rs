@@ -288,6 +288,8 @@ pub struct EditorState {
     pub ui_editor: crate::editor::ui_editor::UiEditorState,
     pub code_editor: crate::editor::code_editor::CodeEditorState,
     pub ui_revision: u64,
+    pub custom_effects_project: Option<std::path::PathBuf>,
+    pub project_editor_handoff: Option<String>,
     pub selection: Selection,
     pub viewport_rect: Option<egui::Rect>,
     pub drag: Option<DragPayload>,

@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
@@ -75,26 +75,40 @@ pub fn poll_job(app_state: &mut AppState) {
         });
     }
     if let Some(outcome) = outcome {
-        r.editor.job = None;
-        r.editor.last_job = Some(outcome);
+        let reload = finish_cargo_job(r, outcome);
+        if let Some(path) = reload {
+            reload_project_editor_handoff(app_state, &path);
+        }
     }
 }
 
-fn start_cargo(app_state: &mut AppState, project: &ProjectState, label: &str, args: Vec<String>) {
+fn finish_cargo_job(root: &mut EditorRoot, outcome: JobOutcome) -> Option<String> {
+    root.editor.job = None;
+    root.editor.last_job = Some(outcome);
+    root.editor.project_editor_handoff.clone()
+}
+
+pub(crate) fn reload_project_editor_handoff(app: &mut AppState, path: &str) {
+    let result = project::try_open_project(path, app);
+    if let Some(root) = app.get_state_data_value_mut::<EditorRoot>("editor") {
+        match result {
+            Ok(()) => root.editor.project_editor_handoff = None,
+            Err(error) => root.editor.modal = Some(crate::editor::state::Modal::ImportError(format!("Cannot reload project after closing its editor: {error}"))),
+        }
+    }
+}
+
+pub(crate) fn start_cargo(app_state: &mut AppState, project: &ProjectState, label: &str, args: Vec<String>) {
     let (tx, rx) = mpsc::channel();
     let label_owned = label.to_string();
     let root_path = project.root_path.clone();
     let started_at = Instant::now();
     let thread_label = label_owned.clone();
     thread::spawn(move || {
-        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        let child = Command::new("cargo")
-            .args(&args_ref)
-            .current_dir(&root_path)
-            .env("CARGO_TERM_COLOR", "never")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn();
+        let child = match project::build::cargo_command(std::path::Path::new(&root_path), &args) {
+            Ok(mut command) => command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn(),
+            Err(error) => Err(std::io::Error::other(error)),
+        };
 
         let mut child = match child {
             Ok(c) => c,
@@ -279,4 +293,20 @@ pub fn add_light(app_state: &mut AppState, kind: LightTemplate) {
         ),
     };
     app_state.add_light(light, emission);
+}
+
+#[cfg(test)]
+mod project_editor_tests {
+    use super::*;
+
+    #[test]
+    fn completed_project_editor_requests_reload_and_keeps_parent_locked() {
+        let mut root = EditorRoot::empty();
+        root.editor.project_editor_handoff = Some("/tmp/game/enigma_project.json".into());
+        let outcome = JobOutcome { label: "Project Editor".into(), success: true, duration: Default::default(), message: "ok".into() };
+        let reload = finish_cargo_job(&mut root, outcome);
+        assert_eq!(reload.as_deref(), Some("/tmp/game/enigma_project.json"));
+        assert!(root.editor.project_editor_handoff.is_some(), "Only a successful disk reload unlocks the parent");
+        assert!(root.editor.job.is_none());
+    }
 }

@@ -55,6 +55,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             .collect())
         .unwrap_or_default();
 
+    if ui.selectable_label(matches!(current_selection, Selection::None), "Scene Settings").clicked() {
+        new_selection = Some(Selection::None);
+    }
+    ui.separator();
+
     let mut spawn_object: Option<ObjectTemplate> = None;
     let mut spawn_model: Option<Uuid> = None;
     egui::CollapsingHeader::new(format!("Objects ({})", object_rows.len()))

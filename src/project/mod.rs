@@ -4,6 +4,8 @@ pub mod scene;
 pub mod material;
 pub mod ui_codegen;
 pub mod ui_assets;
+pub mod post_processing;
+pub mod build;
 
 use std::fs;
 use std::path::Path;
@@ -47,9 +49,11 @@ pub fn try_new_project(path: &str, app_state: &mut AppState) -> Result<(), Proje
 
     write_project_file(&path, &project)?;
 
+    reset_effect_registry_for_project(app_state, &project);
     let root = app_state.get_state_data_value_mut::<EditorRoot>("editor")
         .ok_or(ProjectError::EditorRootMissing)?;
     replace_project(root, project);
+    clear_scene(app_state);
     Ok(())
 }
 
@@ -64,15 +68,15 @@ pub fn try_open_project(path: &str, app_state: &mut AppState) -> Result<(), Proj
     let active_scene_path = project.scenes.get(project.active_scene_index)
         .map(|s| Path::new(&root_dir).join("src/resources").join(&s.relative_path));
 
+    reset_effect_registry_for_project(app_state, &project);
     let root = app_state.get_state_data_value_mut::<EditorRoot>("editor")
         .ok_or(ProjectError::EditorRootMissing)?;
     replace_project(root, project);
     root.editor.material_cache.clear();
+    app_state.post_processing.clear();
 
     if let Some(path) = active_scene_path {
-        if let Err(e) = inject_scene_file(app_state, &path) {
-            eprintln!("warning: failed to load active scene: {e}");
-        }
+        inject_scene_file(app_state, &path)?;
     }
 
     Ok(())
@@ -98,6 +102,7 @@ fn clear_scene(app_state: &mut AppState) {
     app_state.objects.clear();
     app_state.light.clear();
     app_state.materials.clear();
+    app_state.post_processing.clear();
 }
 
 pub fn start_open_project(path: &str, app_state: &mut AppState) {
@@ -193,13 +198,15 @@ pub fn poll_project_load(app_state: &mut AppState) {
 }
 
 fn apply_load_payload(app_state: &mut AppState, payload: ProjectLoadPayload) {
+    reset_effect_registry_for_project(app_state, &payload.project);
     if let Some(r) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
         r.editor.material_cache.clear();
         r.editor.applied_skybox = None;
         replace_project(r, payload.project);
     }
 
-    let Some(scene_text) = payload.scene_text else { return; };
+    app_state.post_processing.clear();
+    let Some(scene_text) = payload.scene_text else { clear_scene(app_state); return; };
     let trimmed = scene_text.trim();
     if trimmed.is_empty() || trimmed == "{}" {
         clear_scene(app_state);
@@ -366,6 +373,19 @@ fn read_project_file(path: &Path) -> Result<ProjectState, ProjectError> {
     Ok(project)
 }
 
+fn reset_effect_registry_for_project(app: &mut AppState, project: &ProjectState) {
+    let target = Path::new(&project.root_path).canonicalize().ok();
+    let reset = app.get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.editor.custom_effects_project.as_ref())
+        .is_some_and(|source| Some(source) != target.as_ref());
+    if reset {
+        app.post_processing_registry = Default::default();
+        if let Some(root) = app.get_state_data_value_mut::<EditorRoot>("editor") {
+            root.editor.custom_effects_project = None;
+        }
+    }
+}
+
 fn replace_project(root: &mut EditorRoot, project: ProjectState) {
     // A previous project may still finish writing on its worker thread. Its
     // completion must never clear this project's unsaved indicator.
@@ -407,6 +427,7 @@ fn create_folder_struct(path: &str, project_name: &str) -> Result<(), ProjectErr
 
     let main_rs = crate::resources::MAIN_RS.replace("ENIGMA_PROJECT_NAME", project_name);
     fs::write(project_dir.join("src/main.rs"), main_rs).map_err(ProjectError::Io)?;
+    post_processing::scaffold(project_dir).map_err(|e| ProjectError::Io(std::io::Error::other(e)))?;
 
     fs::write(project_dir.join("src/resources/scenes/main.json"), "{}").map_err(ProjectError::Io)?;
     Ok(())

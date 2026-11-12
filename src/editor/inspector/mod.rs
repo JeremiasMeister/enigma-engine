@@ -9,3 +9,4 @@ pub mod scene_settings;
 pub mod particle_editor;
 pub mod particle_instance;
 pub mod terrain_editor;
+pub mod post_processing;

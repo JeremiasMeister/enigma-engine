@@ -25,6 +25,22 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
     crate::editor::actions::poll_job(app_state);
     crate::project::poll_project_load(app_state);
     crate::project::poll_save_job(app_state);
+    let handoff = app_state.get_state_data_value::<EditorRoot>("editor")
+        .and_then(|r| r.editor.project_editor_handoff.clone());
+    if let Some(path) = handoff {
+        // Only the child editor may author the project until its saved state is reloaded.
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Project editor");
+            ui.label("This project is open in a separate editor window. Close that window to return here.");
+            if !actions::is_busy(app_state) && ui.button("Retry project reload").clicked() {
+                actions::reload_project_editor_handoff(app_state, &path);
+            }
+        });
+        process_modals(ctx, app_state);
+        draw_job_overlay(ctx, app_state);
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        return;
+    }
     reconcile_materials(app_state);
     apply_material_assignments(app_state);
     reconcile_skybox(app_state);

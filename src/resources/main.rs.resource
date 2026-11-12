@@ -1,6 +1,9 @@
+mod postprocessing;
+
 fn main(){
     // create a new enigma app_state
     let mut app_state = enigma_3d::AppState::new();
+    postprocessing::register(&mut app_state.post_processing_registry).expect("Register project effects");
 
     // create a new enigma event loop, providing a window title and dimensions
     let event_loop = enigma_3d::EventLoop::new("ENIGMA_PROJECT_NAME", 1080, 720); // change the title and dimensions to your liking

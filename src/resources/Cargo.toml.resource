@@ -13,3 +13,4 @@ egui_glium = "0.23.0"
 egui-winit = "0.23.0"
 serde_json = "1.0.108"
 serde = { version = "1.0.193", features = ["derive"] }
+glium = "0.33.0"
