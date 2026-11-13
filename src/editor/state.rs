@@ -285,6 +285,7 @@ impl EditorRoot {
 #[derive(Default)]
 pub struct EditorState {
     pub workspace: Workspace,
+    pub narrative: crate::editor::narrative::NarrativeEditor,
     pub ui_editor: crate::editor::ui_editor::UiEditorState,
     pub code_editor: crate::editor::code_editor::CodeEditorState,
     pub ui_revision: u64,
@@ -335,6 +336,7 @@ pub enum Workspace {
     Scene,
     Ui,
     Code,
+    Narrative,
 }
 
 pub struct ProjectLoadJob {

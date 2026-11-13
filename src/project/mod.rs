@@ -1,4 +1,5 @@
 pub mod code_files;
+pub mod narrative;
 pub mod resource;
 pub mod scene;
 pub mod material;

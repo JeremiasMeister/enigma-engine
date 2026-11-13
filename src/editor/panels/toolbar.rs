@@ -53,6 +53,7 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Scene, "3D scene");
             ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Ui, "UI");
             ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Code, "Code");
+            ui.selectable_value(&mut root.editor.workspace, crate::editor::state::Workspace::Narrative, "Narrative");
         }
 
         let project_loaded = current_project_clone(app_state).is_some();
@@ -68,7 +69,11 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
 
         let code_workspace = app_state.get_state_data_value::<EditorRoot>("editor")
             .is_some_and(|root| root.editor.workspace == crate::editor::state::Workspace::Code);
-        if code_workspace {
+        let narrative_workspace = app_state.get_state_data_value::<EditorRoot>("editor")
+            .is_some_and(|root| root.editor.workspace == crate::editor::state::Workspace::Narrative);
+        if narrative_workspace {
+            if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") { root.editor.narrative.shortcuts(ui.ctx()); }
+        } else if code_workspace {
             if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") {
                 root.editor.code_editor.shortcuts(ui.ctx());
             }
@@ -108,10 +113,12 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
             {
                 actions::run_project(app_state);
             }
-            if ui.button(if code_workspace { "Save file" } else { "Save scene" })
-                .on_hover_text(if code_workspace { "Save the active source file (Ctrl/Cmd+S)" } else { "Save the active scene and project (Ctrl/Cmd+S)" }).clicked()
+            if ui.button(if narrative_workspace { "Save narrative" } else if code_workspace { "Save file" } else { "Save scene" })
+                .on_hover_text(if narrative_workspace { "Save the story and shared characters (Ctrl/Cmd+S)" } else if code_workspace { "Save the active source file (Ctrl/Cmd+S)" } else { "Save the active scene and project (Ctrl/Cmd+S)" }).clicked()
             {
-                if code_workspace {
+                if narrative_workspace {
+                    if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") { root.editor.narrative.save(); }
+                } else if code_workspace {
                     if let Some(root) = app_state.get_state_data_value_mut::<EditorRoot>("editor") { root.editor.code_editor.save_active(); }
                 } else { project::start_save_scene_and_project(app_state); }
             }
@@ -127,6 +134,9 @@ pub fn draw(ui: &mut Ui, app_state: &mut AppState) {
                 if let Some(p) = &root.project {
                     if root.editor.code_editor.dirty_count() > 0 {
                         ui.label(egui::RichText::new(format!("{} code unsaved", root.editor.code_editor.dirty_count())).small().color(theme::AMBER));
+                    }
+                    if root.editor.narrative.dirty() {
+                        ui.label(egui::RichText::new("Narrative unsaved").small().color(theme::AMBER));
                     }
                     if root.editor.dirty {
                         ui.label(egui::RichText::new("Unsaved").small().color(theme::AMBER))
@@ -172,6 +182,7 @@ pub fn status(ui: &mut Ui, app_state: &AppState) {
                     ui.small(match root.editor.workspace {
                         crate::editor::state::Workspace::Ui => "Drag to move · Corner to resize · Ctrl/Cmd+Z Undo",
                         crate::editor::state::Workspace::Code => "Ctrl/Cmd+S Save file · Ctrl/Cmd+F Find",
+                        crate::editor::state::Workspace::Narrative => "Ctrl/Cmd+S Save narrative · Undo / Redo in narrative toolbar",
                         crate::editor::state::Workspace::Scene => "Q Select   W Move   E Rotate   R Scale   F Focus",
                     });
                 }

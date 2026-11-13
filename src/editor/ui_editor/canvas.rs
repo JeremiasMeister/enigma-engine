@@ -18,25 +18,24 @@ pub fn draw(ui: &mut egui::Ui, screen: &mut UiScreen, state: &mut UiEditorState)
             ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(&screen.name).strong());
                 ui.separator();
-                egui::ComboBox::from_id_source("ui_canvas_resolution")
-                    .selected_text(format!(
-                        "{} × {}",
-                        screen.size[0] as u32, screen.size[1] as u32
-                    ))
-                    .show_ui(ui, |ui| {
-                        for size in [
-                            [1280.0, 720.0],
-                            [1920.0, 1080.0],
-                            [960.0, 720.0],
-                            [720.0, 1280.0],
-                        ] {
-                            ui.selectable_value(
-                                &mut screen.size,
-                                size,
-                                format!("{} × {}", size[0] as u32, size[1] as u32),
-                            );
-                        }
-                    });
+                let mut sizes = vec![
+                    [1280.0, 720.0],
+                    [1920.0, 1080.0],
+                    [960.0, 720.0],
+                    [720.0, 1280.0],
+                ];
+                if !sizes.contains(&screen.size) {
+                    sizes.push(screen.size);
+                }
+                crate::editor::widgets::searchable_combo(
+                    ui,
+                    "ui_canvas_resolution",
+                    &mut screen.size,
+                    &sizes
+                        .into_iter()
+                        .map(|size| (size, format!("{} × {}", size[0] as u32, size[1] as u32)))
+                        .collect::<Vec<_>>(),
+                );
                 ui.selectable_value(&mut state.zoom, 0.0, "Fit");
                 ui.selectable_value(&mut state.zoom, 1.0, "100%");
                 ui.toggle_value(&mut state.snap, "Snap 8 px");

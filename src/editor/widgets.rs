@@ -123,6 +123,16 @@ pub fn searchable_combo<T: Clone + PartialEq>(
     selected: &mut T,
     options: &[(T, String)],
 ) -> bool {
+    searchable_combo_with_label(ui, id_source, selected, options, "Missing reference")
+}
+
+fn searchable_combo_with_label<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    id_source: impl std::hash::Hash,
+    selected: &mut T,
+    options: &[(T, String)],
+    fallback: &str,
+) -> bool {
     let id = ui.make_persistent_id(id_source);
     let search_id = id.with("search");
     let open_id = id.with("was_open");
@@ -136,17 +146,22 @@ pub fn searchable_combo<T: Clone + PartialEq>(
         .iter()
         .find(|(value, _)| value == selected)
         .map(|(_, name)| name.as_str())
-        .unwrap_or("Missing reference");
+        .unwrap_or(fallback);
     let mut changed = false;
     let mut picked = false;
-    let mut clicked_inside_popup = false;
-    let result = ui
-        .scope(|ui| {
-            ui.spacing_mut().combo_height = 320.0;
-            egui::ComboBox::from_id_source(id)
-                .selected_text(current)
-                .wrap(true)
-                .show_ui(ui, |ui| {
+    let popup_id = id.with("popup");
+    let button = ui.add(egui::Button::new(current).min_size(egui::vec2(120.0, 24.0)));
+    if button.clicked() {
+        ui.memory_mut(|memory| memory.toggle_popup(popup_id));
+    }
+    if ui.memory(|memory| memory.is_popup_open(popup_id)) {
+        let popup = egui::Area::new(popup_id)
+            .order(egui::Order::Foreground)
+            .constrain(true)
+            .fixed_pos(button.rect.left_bottom())
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(260.0);
                     if !was_open {
                         query.clear();
                     }
@@ -185,20 +200,14 @@ pub fn searchable_combo<T: Clone + PartialEq>(
                             }
                         });
                     ui.small(format!("{} of {} options", matches.len(), options.len()));
-                    clicked_inside_popup = ui.rect_contains_pointer(ui.min_rect())
-                        && ui.input(|input| input.pointer.any_click());
-                })
-        })
-        .inner;
-    // egui 0.23 closes ComboBox popups on every click outside their button,
-    // including clicks in an embedded search field. Retain those interactions;
-    // explicitly close on selection (including Enter) or Escape instead.
-    let popup_id = result.response.id.with("popup");
-    let escape = ui.input(|input| input.key_pressed(egui::Key::Escape));
-    if picked || escape {
-        ui.memory_mut(|memory| memory.close_popup());
-    } else if clicked_inside_popup {
-        ui.memory_mut(|memory| memory.open_popup(popup_id));
+                });
+            });
+        if picked
+            || ui.input(|input| input.key_pressed(egui::Key::Escape))
+            || (button.clicked_elsewhere() && popup.response.clicked_elsewhere())
+        {
+            ui.memory_mut(|memory| memory.close_popup());
+        }
     }
     let is_open = ui.memory(|memory| memory.is_popup_open(popup_id));
     ui.ctx().data_mut(|data| {
@@ -206,6 +215,22 @@ pub fn searchable_combo<T: Clone + PartialEq>(
         data.insert_temp(open_id, is_open);
     });
     changed
+}
+
+/// A searchable one-shot choice list, sharing popup and keyboard behavior with value pickers.
+pub fn searchable_action<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    id: impl std::hash::Hash,
+    label: &str,
+    options: &[(T, String)],
+) -> Option<T> {
+    let mut selected = None;
+    let choices: Vec<_> = options
+        .iter()
+        .map(|(value, label)| (Some(value.clone()), label.clone()))
+        .collect();
+    searchable_combo_with_label(ui, id, &mut selected, &choices, label);
+    selected
 }
 
 pub fn asset_picker(
@@ -484,6 +509,48 @@ mod tests {
             text_present(&output, "2 of 2 options"),
             "clicking inside search must keep the popup open"
         );
+    }
+
+    #[test]
+    fn picker_search_focus_dismissal_and_queries_are_independent() {
+        let ctx = egui::Context::default();
+        let options = vec![(0, "None".into()), (1, "Rock".into()), (2, "Grass".into())];
+        let mut selected = 0;
+        let mut draw = |ui: &mut Ui| {
+            searchable_combo(ui, "first", &mut selected, &options);
+        };
+        frame(&ctx, &mut draw);
+        click(&ctx, egui::pos2(60.0, 20.0), &mut draw);
+        frame(&ctx, &mut draw);
+        click(&ctx, egui::pos2(60.0, 55.0), &mut draw);
+        let output = frame_with_input(&ctx, vec![egui::Event::Text("Rock".into())], &mut draw);
+        assert!(text_present(&output, "1 of 3 options"));
+        assert!(ctx.memory(|m| m.any_popup_open()));
+        frame_with_input(
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            &mut draw,
+        );
+        assert!(!ctx.memory(|m| m.any_popup_open()));
+        assert_eq!(selected, 0);
+        let mut draw_second = |ui: &mut Ui| {
+            searchable_combo(ui, "second", &mut selected, &options);
+        };
+        frame(&ctx, &mut draw_second);
+        click(&ctx, egui::pos2(60.0, 20.0), &mut draw_second);
+        let output = frame(&ctx, &mut draw_second);
+        assert!(
+            text_present(&output, "3 of 3 options"),
+            "another picker must not inherit a query"
+        );
+        click(&ctx, egui::pos2(270.0, 290.0), &mut draw_second);
+        assert!(!ctx.memory(|m| m.any_popup_open()));
+        assert_eq!(selected, 0);
     }
 
     #[test]

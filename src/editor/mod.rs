@@ -7,6 +7,7 @@ pub mod theme;
 pub mod widgets;
 pub mod ui_editor;
 pub mod code_editor;
+pub mod narrative;
 
 use std::collections::HashMap;
 
@@ -78,6 +79,12 @@ pub fn draw(ctx: &Context, app_state: &mut AppState) {
             match workspace {
                 state::Workspace::Ui => ui_editor::draw(ctx, root),
                 state::Workspace::Code => code_editor::draw(ctx, root),
+                state::Workspace::Narrative => {
+                    root.editor.narrative.draw(ctx, root.project.as_ref().map(|p| std::path::Path::new(&p.root_path)));
+                    if let Some(project) = &mut root.project {
+                        if root.editor.narrative.register_imports(project) { root.editor.dirty = true; }
+                    }
+                }
                 state::Workspace::Scene => unreachable!(),
             }
         }

@@ -4,7 +4,7 @@ use crate::ui_runtime::{ImageFit, UiFont, UiNode, UiScreen, UiStyle, UiTextAlign
 use egui::{DragValue, Ui};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum ThemePreset {
     Modern,
     Parchment,
@@ -150,14 +150,9 @@ pub fn node_controls(
 ) {
     theme::section(ui, "Appearance");
     let old = node.style_key.clone();
-    egui::ComboBox::from_id_source("style_key")
-        .selected_text(if old.is_empty() { "Local style" } else { &old })
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut node.style_key, String::new(), "Local style");
-            for key in styles.keys() {
-                ui.selectable_value(&mut node.style_key, key.clone(), key);
-            }
-        });
+    let mut options = vec![(String::new(), "Local style".into())];
+    options.extend(styles.keys().map(|key| (key.clone(), key.clone())));
+    crate::editor::widgets::searchable_combo(ui, "style_key", &mut node.style_key, &options);
     if !old.is_empty() && node.style_key.is_empty() {
         node.style_key = old;
         detach_style(node, styles);
@@ -208,26 +203,27 @@ fn texture_picker(
     candidates: &[(String, String)],
 ) {
     ui.label(label);
-    egui::ComboBox::from_id_source(label)
-        .selected_text(if value.is_empty() {
-            "None"
+    let mut selected = (value.clone(), None::<String>);
+    let mut options = vec![((String::new(), None), "None".into())];
+    options.extend(
+        textures
+            .keys()
+            .map(|key| ((key.clone(), None), key.clone())),
+    );
+    for (name, path) in candidates {
+        if textures.len() < 64 && !textures.values().any(|registered| registered == path) {
+            options.push(((name.clone(), Some(path.clone())), name.clone()));
+        }
+    }
+    if crate::editor::widgets::searchable_combo(ui, label, &mut selected, &options) {
+        if let Some(path) = selected.1 {
+            let key = unique_name(&selected.0, textures.keys().map(String::as_str));
+            textures.insert(key.clone(), path);
+            *value = key;
         } else {
-            value.as_str()
-        })
-        .width(ui.available_width() - 8.0)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(value, String::new(), "None");
-            for key in textures.keys() {
-                ui.selectable_value(value, key.clone(), key);
-            }
-            if !candidates.is_empty() {
-                ui.separator();
-                ui.weak("Project textures");
-                if let Some(key) = project_texture_options(ui, textures, candidates) {
-                    *value = key;
-                }
-            }
-        });
+            *value = selected.0;
+        }
+    }
 }
 
 fn project_texture_options(
@@ -235,36 +231,25 @@ fn project_texture_options(
     textures: &mut BTreeMap<String, String>,
     candidates: &[(String, String)],
 ) -> Option<String> {
-    let mut selected = None;
-    for (name, path) in candidates {
-        // A screen keeps its own stable keys, including aliases used by data.
-        let existing = textures
-            .iter()
-            .find(|(_, registered)| *registered == path)
-            .map(|(key, _)| key.clone());
-        ui.push_id(path, |ui| {
-            if ui
-                .add_enabled(
-                    existing.is_some() || textures.len() < 64,
-                    egui::Button::new(name),
-                )
-                .on_hover_text(path)
-                .clicked()
-            {
-                let key = existing.unwrap_or_else(|| {
-                    let key = unique_name(name, textures.keys().map(String::as_str));
-                    textures.insert(key.clone(), path.clone());
-                    key
-                });
-                selected = Some(key);
-                ui.close_menu();
-            }
-        });
+    let options: Vec<_> = candidates
+        .iter()
+        .filter(|(_, path)| {
+            textures.len() < 64 || textures.values().any(|registered| registered == path)
+        })
+        .map(|(name, path)| ((name.clone(), path.clone()), format!("{name} · {path}")))
+        .collect();
+    let (name, path) = crate::editor::widgets::searchable_action(
+        ui,
+        "project_texture",
+        "Use project texture…",
+        &options,
+    )?;
+    if let Some((key, _)) = textures.iter().find(|(_, registered)| **registered == path) {
+        return Some(key.clone());
     }
-    if textures.len() >= 64 {
-        ui.weak("This screen has 64 textures. Remove an unused reference to add another.");
-    }
-    selected
+    let key = unique_name(&name, textures.keys().map(String::as_str));
+    textures.insert(key.clone(), path);
+    Some(key)
 }
 
 fn style_controls(
@@ -307,12 +292,15 @@ fn style_fields(
     });
     number(ui, "Corners", &mut style.rounding, 100.0);
     egui::CollapsingHeader::new("Typography & border").show(ui, |ui| {
-        egui::ComboBox::from_id_source("font")
-            .selected_text(format!("{:?}", style.skin.font))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut style.skin.font, UiFont::Proportional, "Proportional");
-                ui.selectable_value(&mut style.skin.font, UiFont::Monospace, "Monospace");
-            });
+        crate::editor::widgets::searchable_combo(
+            ui,
+            "font",
+            &mut style.skin.font,
+            &[
+                (UiFont::Proportional, "Proportional".into()),
+                (UiFont::Monospace, "Monospace".into()),
+            ],
+        );
         ui.horizontal_wrapped(|ui| {
             for (align, label) in [
                 (UiTextAlign::Left, "Left"),
@@ -333,18 +321,17 @@ fn style_fields(
         }
         color(ui, "Tint", &mut style.skin.tint);
         ui.checkbox(&mut style.skin.pixelated, "Pixelated filtering");
-        egui::ComboBox::from_id_source("image_fit")
-            .selected_text(format!("{:?}", style.skin.fit))
-            .show_ui(ui, |ui| {
-                for (fit, label) in [
-                    (ImageFit::Stretch, "Stretch"),
-                    (ImageFit::Contain, "Contain"),
-                    (ImageFit::Cover, "Cover"),
-                    (ImageFit::NineSlice, "Nine-slice"),
-                ] {
-                    ui.selectable_value(&mut style.skin.fit, fit, label);
-                }
-            });
+        crate::editor::widgets::searchable_combo(
+            ui,
+            "image_fit",
+            &mut style.skin.fit,
+            &[
+                (ImageFit::Stretch, "Stretch".into()),
+                (ImageFit::Contain, "Contain".into()),
+                (ImageFit::Cover, "Cover".into()),
+                (ImageFit::NineSlice, "Nine-slice".into()),
+            ],
+        );
         ui.label("Sprite region (UV 0–1)");
         egui::Grid::new("sprite_uv").num_columns(2).show(ui, |ui| {
             for (index, label) in ["Left", "Top", "Right", "Bottom"].into_iter().enumerate() {
@@ -411,37 +398,32 @@ pub fn screen_controls(
 ) {
     ui.add_space(12.0);
     theme::section(ui, "Screen theme");
-    ui.menu_button("Apply a theme…", |ui| {
-        for (preset, label) in [
-            (ThemePreset::Modern, "Modern"),
-            (ThemePreset::Parchment, "Parchment"),
-            (ThemePreset::Pixel, "Pixel"),
-            (ThemePreset::Neon, "Neon"),
-        ] {
-            if ui.button(label).clicked() {
-                apply_theme(screen, preset);
-                ui.close_menu();
-            }
-        }
-    })
-    .response
-    .on_hover_text(
-        "Assign an editable shared style to every widget. Undo restores your previous styles.",
-    );
+    if let Some(preset) = crate::editor::widgets::searchable_action(
+        ui,
+        "theme_preset",
+        "Apply a theme…",
+        &[
+            (ThemePreset::Modern, "Modern".into()),
+            (ThemePreset::Parchment, "Parchment".into()),
+            (ThemePreset::Pixel, "Pixel".into()),
+            (ThemePreset::Neon, "Neon".into()),
+        ],
+    ) {
+        apply_theme(screen, preset);
+    }
     ui.weak("Themes change appearance; layout and data bindings stay intact.");
     if !screen.styles.is_empty() {
         egui::CollapsingHeader::new("Reusable styles").show(ui, |ui| {
-            egui::ComboBox::from_id_source("edit_shared_style")
-                .selected_text(if state.selected_style.is_empty() {
-                    "Choose a style"
-                } else {
-                    &state.selected_style
-                })
-                .show_ui(ui, |ui| {
-                    for key in screen.styles.keys() {
-                        ui.selectable_value(&mut state.selected_style, key.clone(), key);
-                    }
-                });
+            crate::editor::widgets::searchable_combo(
+                ui,
+                "edit_shared_style",
+                &mut state.selected_style,
+                &screen
+                    .styles
+                    .keys()
+                    .map(|key| (key.clone(), key.clone()))
+                    .collect::<Vec<_>>(),
+            );
             if let Some(style) = screen.styles.get_mut(&state.selected_style) {
                 style_controls(
                     ui,
@@ -465,9 +447,7 @@ pub fn screen_controls(
         }
     });
     if !candidates.is_empty() {
-        ui.menu_button("Use project texture…", |ui| {
-            project_texture_options(ui, &mut screen.textures, candidates);
-        });
+        project_texture_options(ui, &mut screen.textures, candidates);
     }
     ui.weak("PNG, JPEG, GIF, BMP or TGA. Images are embedded when exporting Rust.");
     let mut remove = None;

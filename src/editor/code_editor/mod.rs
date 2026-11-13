@@ -518,13 +518,15 @@ pub fn draw(ctx: &Context, root: &mut EditorRoot) {
                     state.request(state.active.unwrap(), PendingKind::Reload, ctx);
                 }
                 ui.separator();
-                egui::ComboBox::from_id_source("external_code_editor")
-                    .selected_text(state.editor.label())
-                    .show_ui(ui, |ui| {
-                        for editor in external::Editor::ALL {
-                            ui.selectable_value(&mut state.editor, editor, editor.label());
-                        }
-                    });
+                crate::editor::widgets::searchable_combo(
+                    ui,
+                    "external_code_editor",
+                    &mut state.editor,
+                    &external::Editor::ALL
+                        .into_iter()
+                        .map(|editor| (editor, editor.label().to_owned()))
+                        .collect::<Vec<_>>(),
+                );
                 external = ui
                     .add_enabled(
                         state.launch.is_none(),

@@ -3,6 +3,7 @@ mod editor;
 mod project;
 mod resources;
 mod ui_runtime;
+pub mod narrative;
 
 fn main() {
     let project = std::env::args().nth(1);

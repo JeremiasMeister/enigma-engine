@@ -140,7 +140,9 @@ pub fn draw(ctx: &Context, root: &mut EditorRoot) {
         root.editor.dirty = true;
         root.editor.ui_revision = root.editor.ui_revision.wrapping_add(1);
         root.editor.code_editor.invalidate_tree();
-        state.status = format!("Added {discovered} texture(s) to project assets. Save Project to keep the manifest.");
+        state.status = format!(
+            "Added {discovered} texture(s) to project assets. Save Project to keep the manifest."
+        );
     }
     state.sync(&project.ui_screens);
     let before = project.ui_screens.clone();
@@ -152,27 +154,29 @@ pub fn draw(ctx: &Context, root: &mut EditorRoot) {
         .show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Interface").strong().color(theme::ACCENT));
-                ui.menu_button("+ Screen", |ui| {
-                    for (label, starter) in
-                        [("Blank screen", 0), ("Pause menu", 1), ("RPG dialogue", 2)]
-                    {
-                        if ui.button(label).clicked() {
-                            let id = uuid::Uuid::new_v4().to_string();
-                            let mut screen = match starter {
-                                1 => UiScreen::pause_menu(id),
-                                2 => UiScreen::dialogue(id),
-                                _ => UiScreen::new("Screen", id),
-                            };
-                            screen.name = unique_name(
-                                &screen.name,
-                                project.ui_screens.iter().map(|s| s.name.as_str()),
-                            );
-                            state.activate(&screen);
-                            project.ui_screens.push(screen);
-                            ui.close_menu();
-                        }
-                    }
-                });
+                if let Some(starter) = crate::editor::widgets::searchable_action(
+                    ui,
+                    "new_screen",
+                    "+ Screen",
+                    &[
+                        (0, "Blank screen".into()),
+                        (1, "Pause menu".into()),
+                        (2, "RPG dialogue".into()),
+                    ],
+                ) {
+                    let id = uuid::Uuid::new_v4().to_string();
+                    let mut screen = match starter {
+                        1 => UiScreen::pause_menu(id),
+                        2 => UiScreen::dialogue(id),
+                        _ => UiScreen::new("Screen", id),
+                    };
+                    screen.name = unique_name(
+                        &screen.name,
+                        project.ui_screens.iter().map(|s| s.name.as_str()),
+                    );
+                    state.activate(&screen);
+                    project.ui_screens.push(screen);
+                }
                 ui.separator();
                 if ui
                     .add_enabled(state.history.can_undo(), egui::Button::new("Undo"))
@@ -754,12 +758,21 @@ mod tests {
     fn ui_workspace_discovers_folder_textures_and_marks_manifest_unsaved() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("src/resources/textures")).unwrap();
-        std::fs::write(tmp.path().join("src/resources/textures/worldmap.png"), b"fixture").unwrap();
+        std::fs::write(
+            tmp.path().join("src/resources/textures/worldmap.png"),
+            b"fixture",
+        )
+        .unwrap();
         let mut root = EditorRoot::empty();
-        root.project = Some(crate::editor::state::ProjectState::new("Art".into(), tmp.path().to_string_lossy().into()));
+        root.project = Some(crate::editor::state::ProjectState::new(
+            "Art".into(),
+            tmp.path().to_string_lossy().into(),
+        ));
         let ctx = Context::default();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        while root.project.as_ref().unwrap().manifest.is_empty() && std::time::Instant::now() < deadline {
+        while root.project.as_ref().unwrap().manifest.is_empty()
+            && std::time::Instant::now() < deadline
+        {
             let _ = ctx.run(Default::default(), |ctx| draw(ctx, &mut root));
             std::thread::sleep(std::time::Duration::from_millis(1));
         }

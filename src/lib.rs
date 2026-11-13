@@ -4,6 +4,7 @@ mod editor;
 mod project;
 mod resources;
 mod ui_runtime;
+pub mod narrative;
 
 pub use app::run;
 pub use enigma_3d;

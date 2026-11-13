@@ -42,25 +42,10 @@ fn properties(
         let node = &mut screen.nodes[index];
         theme::panel_heading(ui, &node.name, node.kind.label());
         text_field(ui, "Name", &mut node.name);
-        let parent_label = node
-            .parent
-            .and_then(|id| {
-                parents
-                    .iter()
-                    .find(|(p, _)| *p == id)
-                    .map(|(_, n)| n.as_str())
-            })
-            .unwrap_or("Screen");
         let old_parent = node.parent;
-        egui::ComboBox::from_id_source("ui_parent")
-            .selected_text(parent_label)
-            .width(ui.available_width() - 8.0)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut node.parent, None, "Screen");
-                for (id, name) in &parents {
-                    ui.selectable_value(&mut node.parent, Some(*id), name);
-                }
-            });
+        let mut options = vec![(None, "Screen".into())];
+        options.extend(parents.iter().map(|(id, name)| (Some(*id), name.clone())));
+        crate::editor::widgets::searchable_combo(ui, "ui_parent", &mut node.parent, &options);
         if old_parent != node.parent {
             node.anchor = [0.0, 0.0];
             node.position = [16.0, 16.0];
